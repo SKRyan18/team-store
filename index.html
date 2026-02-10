@@ -118,7 +118,7 @@
 /*** CONFIG — fill these in ***/
 const SUPABASE_URL = "https://oaxwmguhucxaucpyofil.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_jD2x3piN7xnCIjca94gYFA_zzkbjS7T";
-const VENMO_HANDLE = "@Samuel-Ryan-35";
+const VENMO_HANDLE = "samuel-ryan-35";
 const LOGO_URL = "https://skryan18.github.io/team-store/images/logo.jpg"; // from GitHub Pages, e.g. https://.../images/logo.png
 /*** END CONFIG ***/
 
@@ -129,6 +129,17 @@ let cart = [];
 
 const $ = (id) => document.getElementById(id);
 const money = (n) => (Math.round(n*100)/100).toFixed(2);
+
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s).replace(/[&<>"']/g, (m) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[m]));
+}
 
 // Replace your setMsg helper with this
 // Replace existing setMsg function with this
@@ -163,7 +174,7 @@ async function loadProducts(){
   $("statusPill").textContent = "Loading catalog…";
   const { data, error } = await supabaseClient
     .from("products")
-    .select("sku,name,price,personalized,sizes,image_url,active,sort_order")
+    .select("sku,name,price,personalized,number_required,sizes,image_url,active,sort_order")
     .eq("active", true)
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
@@ -361,9 +372,10 @@ function renderCart(){
   $("cartTotal").textContent = money(total);
 }
 
-function submitOrder(){
+async function submitOrder() {
   const buyerName = ($("buyerName").value || "").trim();
   const email = ($("buyerEmail").value || "").trim();
+
   if (!email) { alert("Please enter your email."); return; }
   if (cart.length === 0) { alert("Your cart is empty."); return; }
 
@@ -371,11 +383,11 @@ function submitOrder(){
   setMsg("Submitting order…");
 
   const orderId = newOrderId();
-  const orderTotal = cart.reduce((sum, x) => sum + (Number(x.unitPrice)||0), 0);
+  const orderTotal = cart.reduce((sum, x) => sum + (Number(x.unitPrice) || 0), 0);
   const venmoNote = `TeamStore | ${buyerName || email} | OrderID:${orderId}`;
   const venmoPayLink = buildVenmoLink(VENMO_HANDLE, orderTotal, venmoNote);
 
-  // prepare rows — one DB row per cart item (your schema)
+  // one DB row per cart item
   const rows = cart.map(x => ({
     order_id: orderId,
     parent_name: buyerName,
@@ -390,85 +402,95 @@ function submitOrder(){
     delivered: false
   }));
 
-  (async () => {
-    // insert rows
-    const { error } = await supabaseClient.from("orders").insert(rows);
+  // 1) Insert order rows
+  const { error } = await supabaseClient.from("orders").insert(rows);
 
-    if (error) {
-      $("submitOrderBtn").disabled = false;
-      setMsg(`Error submitting order: ${error.message}`, true);
-      return;
-    }
-
-    // Order saved. Trigger email function (non-blocking).
-// Send confirmation email (non-blocking, with logging)
-  (async () => {
-    try {
-      const resp = await supabaseClient.functions.invoke(
-        "send-order-email-index-ts",
-        { body: { order_id: orderId } }
-      );
-
-      if (resp?.error) {
-        console.error("Email function returned error:", resp.error);
-      } else {
-        console.log("Email function success:", resp.data);
-      }
-    } catch (e) {
-      console.error("Email function invocation failed:", e);
-    }
-  })();
-
-
-    // Restore UI and show success/venmo UI
+  if (error) {
     $("submitOrderBtn").disabled = false;
-    cart = [];
-    renderCart();
-    setMsg("");
+    setMsg(`Error submitting order: ${error.message}`, true);
+    return;
+  }
 
-    // build confirmation HTML
-    const html = `
-      <div style="padding:12px;border:1px solid #eee;border-radius:8px;">
-        <h3>Order submitted — ${escapeHtml(orderId)}</h3>
-        <div style="margin-top:8px;">
-          Parent: <strong>${escapeHtml(buyerName || email)}</strong><br/>
-          Email: <strong>${escapeHtml(email)}</strong>
-        </div>
+  // 2) Fire email function (non-blocking)
+  supabaseClient.functions
+    .invoke("send-order-email-index-ts", { body: { order_id: orderId } })
+    .then((resp) => {
+      if (resp?.error) console.error("Email function returned error:", resp.error);
+      else console.log("Email function success:", resp?.data);
+    })
+    .catch((e) => console.error("Email function invocation failed:", e));
 
-        <div style="margin-top:12px;">
-          ${rows.map((r, i) => `
-            <div style="padding:8px 0;border-bottom:1px dashed #eee">
-              <div><strong>${i+1}. ${escapeHtml(r.item)}</strong> — ${escapeHtml(r.size)}</div>
-              <div class="muted">Name: ${escapeHtml(r.custom_text || "")} • Number: ${escapeHtml(r.jersey_number || "")}</div>
-              <div style="margin-top:4px;">Price: <strong>$${money(Number(r.unit_price)||0)}</strong></div>
-            </div>
-          `).join("")}
-        </div>
+  // 3) Reset cart state + show confirmation
+  $("submitOrderBtn").disabled = false;
+  cart = [];
+  renderCart();
 
-        <div style="margin-top:8px;">
-          Total: <strong>$${money(orderTotal)}</strong>
-        </div>
+  const html = `
+    <div style="padding:12px;border:1px solid #eee;border-radius:8px;">
+      <h3>Order submitted — ${escapeHtml(orderId)}</h3>
 
-        <div style="margin-top:12px;">
-          <a class="btn" href="${venmoPayLink}" target="_blank" rel="noopener"  style="display:inline-block; background:#3d95ce; color:#ffffff; font-size:20px; font-weight:700; padding:16px 26px; border-radius:10px; text-decoration:none; box-shadow:0 4px 10px rgba(61,149,206,0.35);">
-            Pay with Venmo
-          </a>
-          <button id="newOrderBtn" style="display:none; margin-left:12px;" class="btn secondary">
-             Start New Order
-          </button>
-        </div>
-
-        <div class="muted" style="margin-top:10px;">
-          Manual Venmo note (if needed): <strong>${escapeHtml(venmoNote)}</strong>
-        </div>
+      <div style="margin-top:8px;">
+        Parent: <strong>${escapeHtml(buyerName || email)}</strong><br/>
+        Email: <strong>${escapeHtml(email)}</strong>
       </div>
-    `;
-    $("submitOrderBtn").style.display = "none";
-    $("clearCartBtn").style.display = "none";
-    $("newOrderBtn").style.display = "inline-block";
-    setMsg(html, false, true);
-  })();
+
+      <div style="margin-top:12px;">
+        ${rows.map((r, i) => `
+          <div style="padding:8px 0;border-bottom:1px dashed #eee">
+            <div><strong>${i + 1}. ${escapeHtml(r.item)}</strong> — ${escapeHtml(r.size)}</div>
+            <div class="muted">Name: ${escapeHtml(r.custom_text || "")} • Number: ${escapeHtml(r.jersey_number || "")}</div>
+            <div style="margin-top:4px;">Price: <strong>$${money(Number(r.unit_price) || 0)}</strong></div>
+          </div>
+        `).join("")}
+      </div>
+
+      <div style="margin-top:10px;">
+        Total: <strong>$${money(orderTotal)}</strong>
+      </div>
+
+      <div style="margin-top:16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <a href="${venmoPayLink}"
+           target="_blank"
+           rel="noopener"
+           style="display:inline-block; background:#3d95ce; color:#ffffff; font-size:20px; font-weight:700; padding:16px 26px; border-radius:10px; text-decoration:none; box-shadow:0 4px 10px rgba(61,149,206,0.35);">
+          💸 Pay with Venmo
+        </a>
+
+        <button id="newOrderBtn" class="btn2" style="display:inline-block;">
+          Start New Order
+        </button>
+      </div>
+
+      <div class="muted" style="margin-top:10px;">
+        Manual Venmo note (if needed): <strong>${escapeHtml(venmoNote)}</strong>
+      </div>
+    </div>
+  `;
+
+  // Hide old actions to prevent double-submit
+  $("submitOrderBtn").style.display = "none";
+  $("clearCartBtn").style.display = "none";
+
+  setMsg(html, false, true);
+
+  // 4) Wire up Start New Order AFTER the HTML exists
+  const nb = document.getElementById("newOrderBtn");
+  if (nb) {
+    nb.onclick = () => {
+      cart = [];
+      renderCart();
+
+      $("buyerName").value = "";
+      $("buyerEmail").value = "";
+
+      setMsg("");
+
+      $("submitOrderBtn").style.display = "";
+      $("clearCartBtn").style.display = "";
+    };
+  }
 }
+
 
 // Wait for DOM ready then wire up listeners (safe if elements are missing)
 document.addEventListener('DOMContentLoaded', () => {
@@ -476,7 +498,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const clearBtn = el('clearCartBtn');
   const submitBtn = el('submitOrderBtn');
-  const newOrder = el('newOrderBtn');
+ 
 
   if (clearBtn) {
     clearBtn.addEventListener('click', clearCart);
@@ -490,38 +512,13 @@ document.addEventListener('DOMContentLoaded', () => {
     console.warn('submitOrderBtn not found');
   }
 
-  if (newOrder) {
-    newOrder.addEventListener('click', () => {
-      // same reset logic you use for new order
-      cart = [];
-      renderCart();
-      const buyerNameEl = el('buyerName');
-      const buyerEmailEl = el('buyerEmail');
-      if (buyerNameEl) buyerNameEl.value = '';
-      if (buyerEmailEl) buyerEmailEl.value = '';
-      setMsg('');
-      if (submitBtn) submitBtn.style.display = '';
-      if (clearBtn) clearBtn.style.display = '';
-      if (newOrder) newOrder.style.display = 'none';
-    });
-  } else {
-    console.log('newOrderBtn not present (ok until after submit)');
-  }
+  
 
   // If you have other listeners, wire them here with the same pattern:
   // const another = el('someId'); if (another) another.addEventListener(...);
 
 });
-function escapeHtml(s) {
-  if (s == null) return "";
-  return String(s).replace(/[&<>"']/g, (m) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  }[m]));
-}
+
 
 (async function init(){
   try{
