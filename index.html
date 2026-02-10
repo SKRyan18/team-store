@@ -84,7 +84,7 @@ const VENMO_HANDLE = "@Samuel-Ryan-35";
 const LOGO_URL = "https://skryan18.github.io/team-store/images/logo.jpg"; // from GitHub Pages, e.g. https://.../images/logo.png
 /*** END CONFIG ***/
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let products = [];
 let cart = [];
@@ -107,7 +107,7 @@ function newOrderId(){
 
 async function loadProducts(){
   $("statusPill").textContent = "Loading catalog…";
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from("products")
     .select("sku,name,price,personalized,sizes,image_url,active,sort_order")
     .eq("active", true)
@@ -254,7 +254,7 @@ async function submitOrder(){
     delivered: false
   }));
 
-  const { error } = await supabase.from("orders").insert(rows);
+  const { error } = await supabaseClient.from("orders").insert(rows);
 
   $("submitOrderBtn").disabled = false;
 
