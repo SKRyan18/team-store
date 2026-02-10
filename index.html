@@ -3,38 +3,49 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>8U Thunderbirds Team Store</title>
+  <title>Team Store</title>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 14px; }
-    header { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
-    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:14px; margin-top: 14px; }
-    .card { border:1px solid #ddd; border-radius:10px; padding:12px; background:#fff; }
-    .card h3 { margin: 0 0 6px 0; font-size: 16px; }
+    body { font-family: Arial, sans-serif; max-width: 1050px; margin: 20px auto; padding: 0 14px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .brand { display:flex; align-items:center; gap:12px; }
+    .brand img { height: 52px; width:auto; border-radius:10px; }
     .muted { color:#666; font-size: 13px; }
-    label { display:block; margin-top: 8px; font-size: 13px; }
-    input, select { width:100%; box-sizing:border-box; padding:8px; margin-top:4px; border-radius:8px; border:1px solid #ccc; }
+    .pill { display:inline-block; background:#f1f3f5; padding:4px 10px; border-radius:999px; font-size:12px; }
+
+    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap:14px; margin-top: 14px; }
+    .card { border:1px solid #ddd; border-radius:12px; padding:12px; background:#fff; display:flex; flex-direction:column; gap:10px; }
+    .card img { width:100%; height:170px; object-fit:cover; border-radius:10px; background:#f6f6f6; }
+    .card h3 { margin: 0; font-size: 16px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; }
+    .row > div { flex: 1; min-width: 140px; }
+    label { display:block; margin-top: 6px; font-size: 13px; }
+    input, select, textarea { width:100%; box-sizing:border-box; padding:8px; margin-top:4px; border-radius:8px; border:1px solid #ccc; }
     button { cursor:pointer; border:0; border-radius:10px; padding:10px 12px; font-weight:600; }
     .btn { background:#0b5ed7; color:#fff; }
     .btn2 { background:#6c757d; color:#fff; }
     .btnDanger { background:#dc3545; color:#fff; }
-    .row { display:flex; gap:10px; flex-wrap:wrap; }
-    .row > div { flex: 1; min-width: 120px; }
-    .cartWrap { margin-top: 18px; border:1px solid #ddd; border-radius:10px; padding:12px; }
-    .cartItem { padding:8px 0; border-bottom:1px dashed #ddd; }
+
+    .cartWrap { margin-top: 18px; border:1px solid #ddd; border-radius:12px; padding:12px; }
+    .cartItem { padding:10px 0; border-bottom:1px dashed #ddd; }
     .cartItem:last-child { border-bottom:0; }
     .right { text-align:right; }
-    .pill { display:inline-block; background:#f1f3f5; padding:4px 8px; border-radius:999px; font-size:12px; }
     .ok { color: #0a7a2f; white-space:pre-wrap; }
     .err { color: #b00020; white-space:pre-wrap; }
   </style>
+
+  <!-- Supabase JS (UMD build) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <header>
-  <div>
-    <h1 style="margin:0;">Team Store</h1>
-    <div class="muted">Add items to your cart, then submit. You’ll pay via Venmo after submitting.</div>
+  <div class="brand">
+    <img id="logo" alt="Team logo" />
+    <div>
+      <h1 style="margin:0;">Team Store</h1>
+      <div class="muted">Add items to your cart, submit your order, then pay via Venmo.</div>
+    </div>
   </div>
-  <div class="pill" id="statusPill">Loading catalog…</div>
+  <div class="pill" id="statusPill">Loading…</div>
 </header>
 
 <div id="productGrid" class="grid"></div>
@@ -66,96 +77,123 @@
 </div>
 
 <script>
-/*** CONFIG — replace these ***/
-const API_BASE = "https://script.google.com/macros/s/AKfycbzyIndjAI3jnzlrJc5YAnQGdJwnwWE-RRqRh0GPg-KPk4QMp_VA9wkXzb181pFQ6Y1s/exec"; // ends with /exec
-const API_KEY  = "Rr1xa5Ehi2MqMaBTtC/bucDW7RAaBUreqLW35OULiBM=";
-
-console.log("API_BASE:", API_BASE);
-console.log("Catalog URL:", `${API_BASE}?action=catalog&apiKey=${encodeURIComponent(API_KEY)}`);
-
-  
+/*** CONFIG — fill these in ***/
+const SUPABASE_URL = "https://oaxwmguhucxaucpyofil.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_jD2x3piN7xnCIjca94gYFA_zzkbjS7T";
 const VENMO_HANDLE = "@Samuel-Ryan-35";
+const LOGO_URL = "https://skryan18.github.io/team-store/images/logo.jpeg"; // from GitHub Pages, e.g. https://.../images/logo.png
 /*** END CONFIG ***/
 
-let catalog = [];
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let products = [];
 let cart = [];
 
-// Helpers
 const $ = (id) => document.getElementById(id);
 const money = (n) => (Math.round(n*100)/100).toFixed(2);
+
 function setMsg(text, isError=false){
   const el = $("msg");
   el.className = isError ? "err" : "ok";
-  el.textContent = text;
+  el.textContent = text || "";
 }
 
-// 1) Load catalog from Sheets
-async function loadCatalog(){
+function newOrderId(){
+  // simple readable order id
+  const d = new Date();
+  const pad = (x) => String(x).padStart(2,"0");
+  return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-${Math.floor(Math.random()*9000+1000)}`;
+}
+
+async function loadProducts(){
   $("statusPill").textContent = "Loading catalog…";
-  const url = `${API_BASE}?action=catalog&apiKey=${encodeURIComponent(API_KEY)}`;
-  const res = await fetch(url, { method: "GET" });
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error || "Failed to load catalog");
-  catalog = json.items || [];
-  $("statusPill").textContent = `Catalog loaded (${catalog.length})`;
+  const { data, error } = await supabase
+    .from("products")
+    .select("sku,name,price,personalized,sizes,image_url,active,sort_order")
+    .eq("active", true)
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+
+  if (error) throw new Error(error.message);
+  products = data || [];
+  $("statusPill").textContent = `Catalog loaded (${products.length})`;
 }
 
-// 2) Render products
 function renderProducts(){
   const grid = $("productGrid");
   grid.innerHTML = "";
-  catalog.forEach((p) => {
-    // Basic image convention (optional):
-    // If you later add images, you can host them in /img and map by item name.
+
+  products.forEach(p => {
     const card = document.createElement("div");
     card.className = "card";
 
-    const sizes = Array.isArray(p.sizes) ? p.sizes : [];
-    const needsName = !!p.personalized;
+    const img = document.createElement("img");
+    img.src = p.image_url || "";
+    img.alt = p.name || p.sku;
+    img.loading = "lazy";
+    img.onerror = () => { img.style.display = "none"; };
 
-    card.innerHTML = `
-      <h3>${escapeHtml(p.item)} <span class="muted">— $${money(p.unitPrice)}</span></h3>
-      <div class="muted">${needsName ? "Personalized name required" : "No name needed"}</div>
+    const title = document.createElement("h3");
+    title.textContent = `${p.name} — $${money(Number(p.price)||0)}`;
 
-      <label>Size</label>
-      <select class="sizeSel">
-        ${sizes.map(s => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join("")}
-      </select>
+    const meta = document.createElement("div");
+    meta.className = "muted";
+    meta.textContent = p.personalized ? "Personalized name required" : "No name needed";
 
-      ${needsName ? `
-        <label>Name to print</label>
-        <input class="nameInput" placeholder="e.g., RYAN" />
-      ` : ``}
+    const sizeLabel = document.createElement("label");
+    sizeLabel.textContent = "Size";
 
-      <div style="margin-top:10px;">
-        <button class="btn" type="button">Add to Cart</button>
-      </div>
-    `;
+    const sizeSel = document.createElement("select");
+    (p.sizes || []).forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = s;
+      sizeSel.appendChild(opt);
+    });
 
-    const addBtn = card.querySelector("button");
-    addBtn.addEventListener("click", () => {
-      const size = card.querySelector(".sizeSel").value;
-      const customText = needsName ? (card.querySelector(".nameInput").value || "").trim() : "";
-      if (needsName && !customText) {
-        alert("Please enter the name to print for this item.");
-        return;
-      }
+    let nameInput = null;
+    if (p.personalized){
+      const nameLabel = document.createElement("label");
+      nameLabel.textContent = "Name to print";
+      nameInput = document.createElement("input");
+      nameInput.placeholder = "e.g., RYAN";
+      card.appendChild(nameLabel);
+      card.appendChild(nameInput);
+    }
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "btn";
+    addBtn.type = "button";
+    addBtn.textContent = "Add to Cart";
+    addBtn.onclick = () => {
+      const size = sizeSel.value || "";
+      const customText = p.personalized ? (nameInput.value || "").trim() : "";
+      if (!size) { alert("Please select a size."); return; }
+      if (p.personalized && !customText) { alert("Please enter the name to print."); return; }
 
       cart.push({
-        item: p.item,
+        sku: p.sku,
+        name: p.name,
         size,
         customText,
-        unitPrice: Number(p.unitPrice) || 0
+        unitPrice: Number(p.price) || 0
       });
       renderCart();
-      setMsg(""); // clear any old message
-    });
+      setMsg("");
+      if (nameInput) nameInput.value = "";
+    };
+
+    card.appendChild(img);
+    card.appendChild(title);
+    card.appendChild(meta);
+    card.appendChild(sizeLabel);
+    card.appendChild(sizeSel);
+    card.appendChild(addBtn);
 
     grid.appendChild(card);
   });
 }
 
-// 3) Render cart
 function renderCart(){
   const list = $("cartList");
   if (cart.length === 0){
@@ -164,31 +202,32 @@ function renderCart(){
     return;
   }
 
-  let total = 0;
   list.innerHTML = "";
+  let total = 0;
+
   cart.forEach((c, idx) => {
     total += c.unitPrice;
 
     const div = document.createElement("div");
     div.className = "cartItem";
     div.innerHTML = `
-      <div><strong>${escapeHtml(c.item)}</strong> — ${escapeHtml(c.size)} ${c.customText ? `— <span class="muted">${escapeHtml(c.customText)}</span>` : ""}</div>
+      <div><strong>${escapeHtml(c.name)}</strong> — ${escapeHtml(c.size)} ${c.customText ? `— <span class="muted">${escapeHtml(c.customText)}</span>` : ""}</div>
       <div class="row" style="margin-top:6px;">
         <div class="muted">$${money(c.unitPrice)}</div>
         <div class="right"><button class="btnDanger" type="button">Remove</button></div>
       </div>
     `;
-    div.querySelector("button").addEventListener("click", () => {
+    div.querySelector("button").onclick = () => {
       cart.splice(idx, 1);
       renderCart();
-    });
+    };
+
     list.appendChild(div);
   });
 
   $("cartTotal").textContent = money(total);
 }
 
-// 4) Submit order (POST) — you must already have the POST handler deployed
 async function submitOrder(){
   const buyerName = ($("buyerName").value || "").trim();
   const email = ($("buyerEmail").value || "").trim();
@@ -198,35 +237,31 @@ async function submitOrder(){
   $("submitOrderBtn").disabled = true;
   setMsg("Submitting order…");
 
-  const payload = {
-    apiKey: API_KEY,
-    buyerName,
-    email,
-    items: cart.map(x => ({
-      item: x.item,
-      size: x.size,
-      customText: x.customText
-    }))
-  };
+  const orderId = newOrderId();
+  const orderTotal = cart.reduce((sum, x) => sum + (Number(x.unitPrice)||0), 0);
+  const venmoNote = `TeamStore | ${buyerName || email} | OrderID:${orderId}`;
 
-  const res = await fetch(API_BASE, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+  const rows = cart.map(x => ({
+    order_id: orderId,
+    parent_name: buyerName,
+    email: email,
+    item: x.sku,              // store SKU in orders.item for now
+    size: x.size,
+    custom_text: x.customText,
+    unit_price: x.unitPrice,
+    venmo_note: venmoNote,
+    paid: false,
+    delivered: false
+  }));
 
-  const json = await res.json();
+  const { error } = await supabase.from("orders").insert(rows);
+
   $("submitOrderBtn").disabled = false;
 
-  if (!json.success){
-    setMsg(`Error: ${json.error || "Unknown error"}`, true);
+  if (error){
+    setMsg(`Error submitting order: ${error.message}`, true);
     return;
   }
-
-  // Clear cart and show Venmo instructions
-  const total = Number(json.orderTotal || 0);
-  const note = json.venmoNote || "";
-  const orderId = json.orderId || "";
 
   cart = [];
   renderCart();
@@ -235,32 +270,26 @@ async function submitOrder(){
 `Order submitted ✅
 
 Order ID: ${orderId}
-Total: $${money(total)}
+Total: $${money(orderTotal)}
 
 Please Venmo ${VENMO_HANDLE}
-Note: ${note}
-
-(You can close this page after sending Venmo.)`
+Note: ${venmoNote}`
   );
 }
 
-// Clear cart
 $("clearCartBtn").addEventListener("click", () => {
   cart = [];
   renderCart();
   setMsg("");
 });
-
 $("submitOrderBtn").addEventListener("click", submitOrder);
 
-// Basic escaping helpers
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-function escapeAttr(s){ return escapeHtml(s).replace(/"/g, "&quot;"); }
 
-// Boot
 (async function init(){
   try{
-    await loadCatalog();
+    $("logo").src = LOGO_URL;
+    await loadProducts();
     renderProducts();
     renderCart();
     setMsg("");
