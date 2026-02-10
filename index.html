@@ -1,0 +1,269 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Team Store</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 14px; }
+    header { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:14px; margin-top: 14px; }
+    .card { border:1px solid #ddd; border-radius:10px; padding:12px; background:#fff; }
+    .card h3 { margin: 0 0 6px 0; font-size: 16px; }
+    .muted { color:#666; font-size: 13px; }
+    label { display:block; margin-top: 8px; font-size: 13px; }
+    input, select { width:100%; box-sizing:border-box; padding:8px; margin-top:4px; border-radius:8px; border:1px solid #ccc; }
+    button { cursor:pointer; border:0; border-radius:10px; padding:10px 12px; font-weight:600; }
+    .btn { background:#0b5ed7; color:#fff; }
+    .btn2 { background:#6c757d; color:#fff; }
+    .btnDanger { background:#dc3545; color:#fff; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; }
+    .row > div { flex: 1; min-width: 120px; }
+    .cartWrap { margin-top: 18px; border:1px solid #ddd; border-radius:10px; padding:12px; }
+    .cartItem { padding:8px 0; border-bottom:1px dashed #ddd; }
+    .cartItem:last-child { border-bottom:0; }
+    .right { text-align:right; }
+    .pill { display:inline-block; background:#f1f3f5; padding:4px 8px; border-radius:999px; font-size:12px; }
+    .ok { color: #0a7a2f; white-space:pre-wrap; }
+    .err { color: #b00020; white-space:pre-wrap; }
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <h1 style="margin:0;">Team Store</h1>
+    <div class="muted">Add items to your cart, then submit. You’ll pay via Venmo after submitting.</div>
+  </div>
+  <div class="pill" id="statusPill">Loading catalog…</div>
+</header>
+
+<div id="productGrid" class="grid"></div>
+
+<div class="cartWrap">
+  <h2 style="margin:0 0 8px 0;">Your Cart</h2>
+  <div id="cartList" class="muted">No items yet.</div>
+
+  <div class="row" style="margin-top:12px;">
+    <div>
+      <label>Your Name</label>
+      <input id="buyerName" placeholder="Parent/Buyer name" />
+    </div>
+    <div>
+      <label>Email</label>
+      <input id="buyerEmail" placeholder="email@example.com" />
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:12px; align-items:center;">
+    <div><strong>Total:</strong> $<span id="cartTotal">0.00</span></div>
+    <div class="right" style="flex:2; min-width:240px;">
+      <button class="btn2" id="clearCartBtn" type="button">Clear Cart</button>
+      <button class="btn" id="submitOrderBtn" type="button">Submit Order</button>
+    </div>
+  </div>
+
+  <div id="msg" style="margin-top:10px;"></div>
+</div>
+
+<script>
+/*** CONFIG — replace these ***/
+const API_BASE = "REPLACE_WITH_YOUR_APPS_SCRIPT_EXEC_URL"; // ends with /exec
+const API_KEY  = "REPLACE_WITH_YOUR_API_KEY";
+const VENMO_HANDLE = "@YourVenmoHandle";
+/*** END CONFIG ***/
+
+let catalog = [];
+let cart = [];
+
+// Helpers
+const $ = (id) => document.getElementById(id);
+const money = (n) => (Math.round(n*100)/100).toFixed(2);
+function setMsg(text, isError=false){
+  const el = $("msg");
+  el.className = isError ? "err" : "ok";
+  el.textContent = text;
+}
+
+// 1) Load catalog from Sheets
+async function loadCatalog(){
+  $("statusPill").textContent = "Loading catalog…";
+  const url = `${API_BASE}?action=catalog&apiKey=${encodeURIComponent(API_KEY)}`;
+  const res = await fetch(url, { method: "GET" });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error || "Failed to load catalog");
+  catalog = json.items || [];
+  $("statusPill").textContent = `Catalog loaded (${catalog.length})`;
+}
+
+// 2) Render products
+function renderProducts(){
+  const grid = $("productGrid");
+  grid.innerHTML = "";
+  catalog.forEach((p) => {
+    // Basic image convention (optional):
+    // If you later add images, you can host them in /img and map by item name.
+    const card = document.createElement("div");
+    card.className = "card";
+
+    const sizes = Array.isArray(p.sizes) ? p.sizes : [];
+    const needsName = !!p.personalized;
+
+    card.innerHTML = `
+      <h3>${escapeHtml(p.item)} <span class="muted">— $${money(p.unitPrice)}</span></h3>
+      <div class="muted">${needsName ? "Personalized name required" : "No name needed"}</div>
+
+      <label>Size</label>
+      <select class="sizeSel">
+        ${sizes.map(s => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join("")}
+      </select>
+
+      ${needsName ? `
+        <label>Name to print</label>
+        <input class="nameInput" placeholder="e.g., RYAN" />
+      ` : ``}
+
+      <div style="margin-top:10px;">
+        <button class="btn" type="button">Add to Cart</button>
+      </div>
+    `;
+
+    const addBtn = card.querySelector("button");
+    addBtn.addEventListener("click", () => {
+      const size = card.querySelector(".sizeSel").value;
+      const customText = needsName ? (card.querySelector(".nameInput").value || "").trim() : "";
+      if (needsName && !customText) {
+        alert("Please enter the name to print for this item.");
+        return;
+      }
+
+      cart.push({
+        item: p.item,
+        size,
+        customText,
+        unitPrice: Number(p.unitPrice) || 0
+      });
+      renderCart();
+      setMsg(""); // clear any old message
+    });
+
+    grid.appendChild(card);
+  });
+}
+
+// 3) Render cart
+function renderCart(){
+  const list = $("cartList");
+  if (cart.length === 0){
+    list.textContent = "No items yet.";
+    $("cartTotal").textContent = "0.00";
+    return;
+  }
+
+  let total = 0;
+  list.innerHTML = "";
+  cart.forEach((c, idx) => {
+    total += c.unitPrice;
+
+    const div = document.createElement("div");
+    div.className = "cartItem";
+    div.innerHTML = `
+      <div><strong>${escapeHtml(c.item)}</strong> — ${escapeHtml(c.size)} ${c.customText ? `— <span class="muted">${escapeHtml(c.customText)}</span>` : ""}</div>
+      <div class="row" style="margin-top:6px;">
+        <div class="muted">$${money(c.unitPrice)}</div>
+        <div class="right"><button class="btnDanger" type="button">Remove</button></div>
+      </div>
+    `;
+    div.querySelector("button").addEventListener("click", () => {
+      cart.splice(idx, 1);
+      renderCart();
+    });
+    list.appendChild(div);
+  });
+
+  $("cartTotal").textContent = money(total);
+}
+
+// 4) Submit order (POST) — you must already have the POST handler deployed
+async function submitOrder(){
+  const buyerName = ($("buyerName").value || "").trim();
+  const email = ($("buyerEmail").value || "").trim();
+  if (!email) { alert("Please enter your email."); return; }
+  if (cart.length === 0) { alert("Your cart is empty."); return; }
+
+  $("submitOrderBtn").disabled = true;
+  setMsg("Submitting order…");
+
+  const payload = {
+    apiKey: API_KEY,
+    buyerName,
+    email,
+    items: cart.map(x => ({
+      item: x.item,
+      size: x.size,
+      customText: x.customText
+    }))
+  };
+
+  const res = await fetch(API_BASE, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  const json = await res.json();
+  $("submitOrderBtn").disabled = false;
+
+  if (!json.success){
+    setMsg(`Error: ${json.error || "Unknown error"}`, true);
+    return;
+  }
+
+  // Clear cart and show Venmo instructions
+  const total = Number(json.orderTotal || 0);
+  const note = json.venmoNote || "";
+  const orderId = json.orderId || "";
+
+  cart = [];
+  renderCart();
+
+  setMsg(
+`Order submitted ✅
+
+Order ID: ${orderId}
+Total: $${money(total)}
+
+Please Venmo ${VENMO_HANDLE}
+Note: ${note}
+
+(You can close this page after sending Venmo.)`
+  );
+}
+
+// Clear cart
+$("clearCartBtn").addEventListener("click", () => {
+  cart = [];
+  renderCart();
+  setMsg("");
+});
+
+$("submitOrderBtn").addEventListener("click", submitOrder);
+
+// Basic escaping helpers
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function escapeAttr(s){ return escapeHtml(s).replace(/"/g, "&quot;"); }
+
+// Boot
+(async function init(){
+  try{
+    await loadCatalog();
+    renderProducts();
+    renderCart();
+    setMsg("");
+  }catch(e){
+    $("statusPill").textContent = "Catalog error";
+    setMsg(e.message, true);
+  }
+})();
+</script>
+</body>
+</html>
