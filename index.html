@@ -512,7 +512,16 @@ document.addEventListener('DOMContentLoaded', () => {
   // const another = el('someId'); if (another) another.addEventListener(...);
 
 });
-
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s).replace(/[&<>"']/g, (m) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[m]));
+}
 
 (async function init(){
   try{
