@@ -441,18 +441,22 @@ function submitOrder(){
         </div>
 
         <div style="margin-top:12px;">
-          <a class="btn" href="${venmoPayLink}" target="_blank" rel="noopener" style="display:inline-block; text-decoration:none;">
+          <a class="btn" href="${venmoPayLink}" target="_blank" rel="noopener"  style="display:inline-block; background:#3d95ce; color:#ffffff; font-size:20px; font-weight:700; padding:16px 26px; border-radius:10px; text-decoration:none; box-shadow:0 4px 10px rgba(61,149,206,0.35);">
             Pay with Venmo
           </a>
+          <button id="newOrderBtn" style="display:none; margin-left:12px;" class="btn secondary">
+             Start New Order
+          </button>
         </div>
 
         <div class="muted" style="margin-top:10px;">
-          If you already paid, you don’t need to pay again.<br/>
           Manual Venmo note (if needed): <strong>${escapeHtml(venmoNote)}</strong>
         </div>
       </div>
     `;
-
+    $("submitOrderBtn").style.display = "none";
+    $("clearCartBtn").style.display = "none";
+    $("newOrderBtn").style.display = "inline-block";
     setMsg(html, false, true);
   })();
 }
@@ -466,6 +470,24 @@ $("clearCartBtn").addEventListener("click", () => {
 $("submitOrderBtn").addEventListener("click", submitOrder);
 
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+$("newOrderBtn").addEventListener("click", () => {
+  // reset cart + UI state
+    cart = [];
+    renderCart();
+
+    // clear buyer fields
+    $("buyerName").value = "";
+    $("buyerEmail").value = "";
+
+    // clear messages
+    setMsg("");
+
+    // restore buttons
+    $("submitOrderBtn").style.display = "";
+    $("clearCartBtn").style.display = "";
+    $("newOrderBtn").style.display = "none";
+});
 
 (async function init(){
   try{
