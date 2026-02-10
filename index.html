@@ -13,9 +13,43 @@
     .pill { display:inline-block; background:#f1f3f5; padding:4px 10px; border-radius:999px; font-size:12px; }
 
     .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap:14px; margin-top: 14px; }
-    .card { border:1px solid #ddd; border-radius:12px; padding:12px; background:#fff; display:flex; flex-direction:column; gap:10px; }
-    .card img { width:100%; height:170px; object-fit:cover; border-radius:10px; background:#f6f6f6; }
+    
     .card h3 { margin: 0; font-size: 16px; }
+    .card {
+            border:1px solid #ddd;
+            border-radius:12px;
+            padding:12px;
+            background:#fff;
+            display:flex;
+            flex-direction:column;
+          }
+
+    .card img {
+            width:100%;
+            height:170px;
+            object-fit:cover;
+            border-radius:10px;
+            background:#f6f6f6;
+          }
+
+          /* NEW */
+    .card .options {
+            display:flex;
+            flex-direction:column;
+            gap:8px;
+            min-height: 140px; /* tweak if needed */
+          }
+
+/* NEW */
+    .card .warning {
+      color: #b00020;
+      font-size: 12px;
+    }
+
+    .card .actions {
+      margin-top:auto; /* pushes button to bottom */
+    }
+
     .row { display:flex; gap:10px; flex-wrap:wrap; }
     .row > div { flex: 1; min-width: 140px; }
     label { display:block; margin-top: 6px; font-size: 13px; }
@@ -31,6 +65,8 @@
     .right { text-align:right; }
     .ok { color: #0a7a2f; white-space:pre-wrap; }
     .err { color: #b00020; white-space:pre-wrap; }
+
+
   </style>
 
   <!-- Supabase JS (UMD build) -->
@@ -118,8 +154,18 @@ async function loadProducts(){
   products = data || [];
   $("statusPill").textContent = `Catalog loaded (${products.length})`;
 }
+function buildVenmoLink(handle, amount, note) {
+  // Handle can be "@samuel-Ryan-35" or "samuel-Ryan-35"
+  const recipients = String(handle || "").replace(/^@/, "");
+  return (
+    "https://venmo.com/?txn=pay" +
+    `&recipients=${encodeURIComponent(recipients)}` +
+    `&amount=${encodeURIComponent(Number(amount).toFixed(2))}` +
+    `&note=${encodeURIComponent(note)}`
+  );
+}
 
-function renderProducts(){
+function renderProducts() {
   const grid = $("productGrid");
   grid.innerHTML = "";
 
@@ -134,12 +180,19 @@ function renderProducts(){
     img.onerror = () => { img.style.display = "none"; };
 
     const title = document.createElement("h3");
-    title.textContent = `${p.name} — $${money(Number(p.price)||0)}`;
+    title.textContent = `${p.name} — $${money(Number(p.price) || 0)}`;
 
     const meta = document.createElement("div");
     meta.className = "muted";
-    meta.textContent = p.personalized ? "Personalized name required" : "No name needed";
+    meta.textContent = p.personalized ? "Name optional" : "No name needed";
 
+    const optionsDiv = document.createElement("div");
+    optionsDiv.className = "options";
+
+    const actionsDiv = document.createElement("div");
+    actionsDiv.className = "actions";
+
+    // Size
     const sizeLabel = document.createElement("label");
     sizeLabel.textContent = "Size";
 
@@ -151,48 +204,91 @@ function renderProducts(){
       sizeSel.appendChild(opt);
     });
 
+    optionsDiv.appendChild(sizeLabel);
+    optionsDiv.appendChild(sizeSel);
+
+    // Name (optional)
     let nameInput = null;
-    if (p.personalized){
+    if (p.personalized) {
       const nameLabel = document.createElement("label");
-      nameLabel.textContent = "Name to print";
+      nameLabel.textContent = "Name to print (optional)";
+
       nameInput = document.createElement("input");
       nameInput.placeholder = "e.g., RYAN";
-      card.appendChild(nameLabel);
-      card.appendChild(nameInput);
+
+      optionsDiv.appendChild(nameLabel);
+      optionsDiv.appendChild(nameInput);
     }
 
+    // Number (optional)
+    let numberInput = null;
+    if (p.number_required) {
+      const numberLabel = document.createElement("label");
+      numberLabel.textContent = "Number (optional)";
+
+      numberInput = document.createElement("input");
+      numberInput.placeholder = "e.g., 12";
+      numberInput.inputMode = "numeric";
+
+      optionsDiv.appendChild(numberLabel);
+      optionsDiv.appendChild(numberInput);
+    }
+
+    // Warning (non-blocking)
+    const warn = document.createElement("div");
+    warn.className = "warning";
+    warn.style.display = "none";
+    warn.textContent = "No name or number entered. Is this OK?";
+    optionsDiv.appendChild(warn);
+
+    // Button
     const addBtn = document.createElement("button");
     addBtn.className = "btn";
     addBtn.type = "button";
     addBtn.textContent = "Add to Cart";
+
     addBtn.onclick = () => {
       const size = sizeSel.value || "";
-      const customText = p.personalized ? (nameInput.value || "").trim() : "";
       if (!size) { alert("Please select a size."); return; }
-      if (p.personalized && !customText) { alert("Please enter the name to print."); return; }
+
+      const customText = p.personalized ? (nameInput?.value || "").trim() : "";
+      const numberValue = p.number_required ? (numberInput?.value || "").trim() : "";
+
+      // Show warning if BOTH blank (only when both fields exist for this product)
+      if (p.personalized && p.number_required && !customText && !numberValue) {
+        warn.style.display = "block";
+      } else {
+        warn.style.display = "none";
+      }
 
       cart.push({
         sku: p.sku,
         name: p.name,
         size,
-        customText,
+        customText: customText || null,
+        jersey_number: numberValue || null,
         unitPrice: Number(p.price) || 0
       });
+
       renderCart();
-      setMsg("");
+
       if (nameInput) nameInput.value = "";
+      if (numberInput) numberInput.value = "";
     };
 
+    actionsDiv.appendChild(addBtn);
+
+    // Assemble card
     card.appendChild(img);
     card.appendChild(title);
     card.appendChild(meta);
-    card.appendChild(sizeLabel);
-    card.appendChild(sizeSel);
-    card.appendChild(addBtn);
+    card.appendChild(optionsDiv);
+    card.appendChild(actionsDiv);
 
     grid.appendChild(card);
   });
 }
+
 
 function renderCart(){
   const list = $("cartList");
@@ -240,21 +336,28 @@ async function submitOrder(){
   const orderId = newOrderId();
   const orderTotal = cart.reduce((sum, x) => sum + (Number(x.unitPrice)||0), 0);
   const venmoNote = `TeamStore | ${buyerName || email} | OrderID:${orderId}`;
+  const venmoPayLink = buildVenmoLink(VENMO_HANDLE, orderTotal, venmoNote);
+
 
   const rows = cart.map(x => ({
     order_id: orderId,
     parent_name: buyerName,
     email: email,
-    item: x.sku,              // store SKU in orders.item for now
+    item: x.sku,
     size: x.size,
     custom_text: x.customText,
+    jersey_number: x.jersey_number,   // <-- add this
     unit_price: x.unitPrice,
     venmo_note: venmoNote,
     paid: false,
     delivered: false
   }));
 
+
   const { error } = await supabaseClient.from("orders").insert(rows);
+  await supabase.functions.invoke('send-order-email-index-ts', {
+      body: { order_id }
+    });
 
   $("submitOrderBtn").disabled = false;
 
@@ -266,15 +369,37 @@ async function submitOrder(){
   cart = [];
   renderCart();
 
-  setMsg(
-`Order submitted ✅
+  setMsg(""); // clear any previous text
 
-Order ID: ${orderId}
-Total: $${money(orderTotal)}
+  const msgEl = document.getElementById("msg");
+  msgEl.className = "ok";
+  msgEl.innerHTML = `
+    <div><strong>Order submitted ✅</strong></div>
 
-Please Venmo ${VENMO_HANDLE}
-Note: ${venmoNote}`
-  );
+    <div style="margin-top:6px;">
+      Order ID: <strong>${orderId}</strong>
+    </div>
+
+    <div style="margin-top:4px;">
+      Total: <strong>$${money(orderTotal)}</strong>
+    </div>
+
+    <div style="margin-top:12px;">
+      <a class="btn"
+         href="${venmoPayLink}"
+         target="_blank"
+         rel="noopener"
+         style="display:inline-block; text-decoration:none;">
+        Pay with Venmo
+      </a>
+    </div>
+
+    <div class="muted" style="margin-top:10px;">
+      If you already paid, you don’t need to pay again.<br/>
+      Manual Venmo note (if needed): <strong>${venmoNote}</strong>
+    </div>
+  `;
+
 }
 
 $("clearCartBtn").addEventListener("click", () => {
