@@ -69,8 +69,9 @@
 
   </style>
 
-  <!-- Supabase JS (UMD build) -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- replace with the UMD build -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.29.0/dist/umd/supabase.min.js"></script>
+
 </head>
 <body>
 <header>
@@ -461,33 +462,49 @@ function submitOrder(){
   })();
 }
 
+// Wait for DOM ready then wire up listeners (safe if elements are missing)
+document.addEventListener('DOMContentLoaded', () => {
+  const el = id => document.getElementById(id);
 
-$("clearCartBtn").addEventListener("click", () => {
-  cart = [];
-  renderCart();
-  setMsg("");
+  const clearBtn = el('clearCartBtn');
+  const submitBtn = el('submitOrderBtn');
+  const newOrder = el('newOrderBtn');
+
+  if (clearBtn) {
+    clearBtn.addEventListener('click', clearCart);
+  } else {
+    console.warn('clearCartBtn not found');
+  }
+
+  if (submitBtn) {
+    submitBtn.addEventListener('click', submitOrder);
+  } else {
+    console.warn('submitOrderBtn not found');
+  }
+
+  if (newOrder) {
+    newOrder.addEventListener('click', () => {
+      // same reset logic you use for new order
+      cart = [];
+      renderCart();
+      const buyerNameEl = el('buyerName');
+      const buyerEmailEl = el('buyerEmail');
+      if (buyerNameEl) buyerNameEl.value = '';
+      if (buyerEmailEl) buyerEmailEl.value = '';
+      setMsg('');
+      if (submitBtn) submitBtn.style.display = '';
+      if (clearBtn) clearBtn.style.display = '';
+      if (newOrder) newOrder.style.display = 'none';
+    });
+  } else {
+    console.log('newOrderBtn not present (ok until after submit)');
+  }
+
+  // If you have other listeners, wire them here with the same pattern:
+  // const another = el('someId'); if (another) another.addEventListener(...);
+
 });
-$("submitOrderBtn").addEventListener("click", submitOrder);
 
-function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-
-$("newOrderBtn").addEventListener("click", () => {
-  // reset cart + UI state
-    cart = [];
-    renderCart();
-
-    // clear buyer fields
-    $("buyerName").value = "";
-    $("buyerEmail").value = "";
-
-    // clear messages
-    setMsg("");
-
-    // restore buttons
-    $("submitOrderBtn").style.display = "";
-    $("clearCartBtn").style.display = "";
-    $("newOrderBtn").style.display = "none";
-});
 
 (async function init(){
   try{
