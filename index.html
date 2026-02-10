@@ -69,6 +69,11 @@
 /*** CONFIG — replace these ***/
 const API_BASE = "https://script.google.com/macros/s/AKfycbzyIndjAI3jnzlrJc5YAnQGdJwnwWE-RRqRh0GPg-KPk4QMp_VA9wkXzb181pFQ6Y1s/exec"; // ends with /exec
 const API_KEY  = "Rr1xa5Ehi2MqMaBTtC/bucDW7RAaBUreqLW35OULiBM=";
+
+console.log("API_BASE:", API_BASE);
+console.log("Catalog URL:", `${API_BASE}?action=catalog&apiKey=${encodeURIComponent(API_KEY)}`);
+
+  
 const VENMO_HANDLE = "@Samuel-Ryan-35";
 /*** END CONFIG ***/
 
