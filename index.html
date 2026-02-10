@@ -169,34 +169,40 @@ function renderProducts() {
   const grid = $("productGrid");
   grid.innerHTML = "";
 
-  products.forEach(p => {
+  products.forEach((p, pIndex) => {
     const card = document.createElement("div");
     card.className = "card";
 
+    // image
     const img = document.createElement("img");
     img.src = p.image_url || "";
     img.alt = p.name || p.sku;
     img.loading = "lazy";
     img.onerror = () => { img.style.display = "none"; };
 
+    // title + price
     const title = document.createElement("h3");
     title.textContent = `${p.name} — $${money(Number(p.price) || 0)}`;
 
+    // meta line
     const meta = document.createElement("div");
     meta.className = "muted";
     meta.textContent = p.personalized ? "Name optional" : "No name needed";
 
+    // options container (sizes, name, number, warning)
     const optionsDiv = document.createElement("div");
     optionsDiv.className = "options";
 
+    // actions container (button)
     const actionsDiv = document.createElement("div");
     actionsDiv.className = "actions";
 
-    // Size
+    // Size selector
     const sizeLabel = document.createElement("label");
     sizeLabel.textContent = "Size";
 
     const sizeSel = document.createElement("select");
+    sizeSel.id = `size-${pIndex}`;
     (p.sizes || []).forEach(s => {
       const opt = document.createElement("option");
       opt.value = s;
@@ -207,41 +213,41 @@ function renderProducts() {
     optionsDiv.appendChild(sizeLabel);
     optionsDiv.appendChild(sizeSel);
 
-    // Name (optional)
+    // Name input: show if product.personalized is true
     let nameInput = null;
     if (p.personalized) {
       const nameLabel = document.createElement("label");
       nameLabel.textContent = "Name to print (optional)";
-
       nameInput = document.createElement("input");
+      nameInput.id = `name-${pIndex}`;
       nameInput.placeholder = "e.g., RYAN";
-
       optionsDiv.appendChild(nameLabel);
       optionsDiv.appendChild(nameInput);
     }
 
-    // Number (optional)
+    // Number input: show if product.number_required OR product.personalized
+    // (covers products that are personalized but don't mark number_required)
     let numberInput = null;
-    if (p.number_required) {
+    if (p.number_required || p.personalized) {
       const numberLabel = document.createElement("label");
-      numberLabel.textContent = "Number (optional)";
-
+      numberLabel.textContent = "Jersey number (optional)";
       numberInput = document.createElement("input");
+      numberInput.id = `number-${pIndex}`;
       numberInput.placeholder = "e.g., 12";
       numberInput.inputMode = "numeric";
-
+      numberInput.maxLength = 3;
       optionsDiv.appendChild(numberLabel);
       optionsDiv.appendChild(numberInput);
     }
 
-    // Warning (non-blocking)
+    // Warning (non-blocking) - shown only when both inputs exist for this product
     const warn = document.createElement("div");
     warn.className = "warning";
     warn.style.display = "none";
     warn.textContent = "No name or number entered. Is this OK?";
     optionsDiv.appendChild(warn);
 
-    // Button
+    // Add to Cart button
     const addBtn = document.createElement("button");
     addBtn.className = "btn";
     addBtn.type = "button";
@@ -251,12 +257,14 @@ function renderProducts() {
       const size = sizeSel.value || "";
       if (!size) { alert("Please select a size."); return; }
 
-      const customText = p.personalized ? (nameInput?.value || "").trim() : "";
-      const numberValue = p.number_required ? (numberInput?.value || "").trim() : "";
+      const customText = nameInput ? (nameInput.value || "").trim() : null;
+      const numberValue = numberInput ? (numberInput.value || "").trim() : null;
 
-      // Show warning if BOTH blank (only when both fields exist for this product)
-      if (p.personalized && p.number_required && !customText && !numberValue) {
+      // If both name and number inputs exist (i.e., product supports personalization)
+      // and both are empty, show a non-blocking warning.
+      if ((nameInput || numberInput) && !customText && !numberValue) {
         warn.style.display = "block";
+        // don't block the add — user can confirm and add
       } else {
         warn.style.display = "none";
       }
@@ -272,13 +280,16 @@ function renderProducts() {
 
       renderCart();
 
+      // clear inputs for convenience
       if (nameInput) nameInput.value = "";
       if (numberInput) numberInput.value = "";
+      // hide warning after clearing
+      warn.style.display = "none";
     };
 
     actionsDiv.appendChild(addBtn);
 
-    // Assemble card
+    // assemble card
     card.appendChild(img);
     card.appendChild(title);
     card.appendChild(meta);
@@ -288,6 +299,7 @@ function renderProducts() {
     grid.appendChild(card);
   });
 }
+
 
 
 function renderCart(){
@@ -324,7 +336,7 @@ function renderCart(){
   $("cartTotal").textContent = money(total);
 }
 
-async function submitOrder(){
+function submitOrder(){
   const buyerName = ($("buyerName").value || "").trim();
   const email = ($("buyerEmail").value || "").trim();
   if (!email) { alert("Please enter your email."); return; }
@@ -338,69 +350,82 @@ async function submitOrder(){
   const venmoNote = `TeamStore | ${buyerName || email} | OrderID:${orderId}`;
   const venmoPayLink = buildVenmoLink(VENMO_HANDLE, orderTotal, venmoNote);
 
-
+  // prepare rows — one DB row per cart item (your schema)
   const rows = cart.map(x => ({
     order_id: orderId,
     parent_name: buyerName,
     email: email,
     item: x.sku,
     size: x.size,
-    custom_text: x.customText,
-    jersey_number: x.jersey_number,   // <-- add this
+    custom_text: x.customText ?? null,
+    jersey_number: x.jersey_number ?? null,
     unit_price: x.unitPrice,
     venmo_note: venmoNote,
     paid: false,
     delivered: false
   }));
 
+  (async () => {
+    // insert rows
+    const { error } = await supabaseClient.from("orders").insert(rows);
 
-  const { error } = await supabaseClient.from("orders").insert(rows);
-  await supabase.functions.invoke('send-order-email-index-ts', {
-      body: { order_id }
-    });
+    if (error) {
+      $("submitOrderBtn").disabled = false;
+      setMsg(`Error submitting order: ${error.message}`, true);
+      return;
+    }
 
-  $("submitOrderBtn").disabled = false;
+    // Order saved. Trigger email function (non-blocking).
+    supabaseClient.functions
+      .invoke("send-order-email-index-ts", { body: { order_id: orderId } })
+      .catch((err) => console.error("send-order-email error:", err));
 
-  if (error){
-    setMsg(`Error submitting order: ${error.message}`, true);
-    return;
-  }
+    // Restore UI and show success/venmo UI
+    $("submitOrderBtn").disabled = false;
+    cart = [];
+    renderCart();
+    setMsg("");
 
-  cart = [];
-  renderCart();
+    // build confirmation HTML
+    const html = `
+      <div style="padding:12px;border:1px solid #eee;border-radius:8px;">
+        <h3>Order submitted — ${escapeHtml(orderId)}</h3>
+        <div style="margin-top:8px;">
+          Parent: <strong>${escapeHtml(buyerName || email)}</strong><br/>
+          Email: <strong>${escapeHtml(email)}</strong>
+        </div>
 
-  setMsg(""); // clear any previous text
+        <div style="margin-top:12px;">
+          ${rows.map((r, i) => `
+            <div style="padding:8px 0;border-bottom:1px dashed #eee">
+              <div><strong>${i+1}. ${escapeHtml(r.item)}</strong> — ${escapeHtml(r.size)}</div>
+              <div class="muted">Name: ${escapeHtml(r.custom_text || "")} • Number: ${escapeHtml(r.jersey_number || "")}</div>
+              <div style="margin-top:4px;">Price: <strong>$${money(Number(r.unit_price)||0)}</strong></div>
+            </div>
+          `).join("")}
+        </div>
 
-  const msgEl = document.getElementById("msg");
-  msgEl.className = "ok";
-  msgEl.innerHTML = `
-    <div><strong>Order submitted ✅</strong></div>
+        <div style="margin-top:8px;">
+          Total: <strong>$${money(orderTotal)}</strong>
+        </div>
 
-    <div style="margin-top:6px;">
-      Order ID: <strong>${orderId}</strong>
-    </div>
+        <div style="margin-top:12px;">
+          <a class="btn" href="${venmoPayLink}" target="_blank" rel="noopener" style="display:inline-block; text-decoration:none;">
+            Pay with Venmo
+          </a>
+        </div>
 
-    <div style="margin-top:4px;">
-      Total: <strong>$${money(orderTotal)}</strong>
-    </div>
+        <div class="muted" style="margin-top:10px;">
+          If you already paid, you don’t need to pay again.<br/>
+          Manual Venmo note (if needed): <strong>${escapeHtml(venmoNote)}</strong>
+        </div>
+      </div>
+    `;
 
-    <div style="margin-top:12px;">
-      <a class="btn"
-         href="${venmoPayLink}"
-         target="_blank"
-         rel="noopener"
-         style="display:inline-block; text-decoration:none;">
-        Pay with Venmo
-      </a>
-    </div>
-
-    <div class="muted" style="margin-top:10px;">
-      If you already paid, you don’t need to pay again.<br/>
-      Manual Venmo note (if needed): <strong>${venmoNote}</strong>
-    </div>
-  `;
-
+    setMsg(html, false);
+  })();
 }
+
 
 $("clearCartBtn").addEventListener("click", () => {
   cart = [];
