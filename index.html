@@ -128,11 +128,27 @@ let cart = [];
 const $ = (id) => document.getElementById(id);
 const money = (n) => (Math.round(n*100)/100).toFixed(2);
 
-function setMsg(text, isError=false){
-  const el = $("msg");
-  el.className = isError ? "err" : "ok";
-  el.textContent = text || "";
-}
+// Replace your setMsg helper with this
+// Replace existing setMsg function with this
+    function setMsg(content, isError = false, isHtml = false) {
+      const area = $("msg"); // matches <div id="msg"> in your HTML
+      if (!area) {
+        console.warn("setMsg: message container (#msg) not found");
+        return;
+      }
+
+      if (isHtml) {
+        area.innerHTML = content;
+      } else {
+        // keep existing behavior for plain text
+        area.textContent = content;
+      }
+
+      // visual styling for error vs normal (keeps other styles unchanged)
+      area.style.color = isError ? "crimson" : "";
+    }
+
+
 
 function newOrderId(){
   // simple readable order id
@@ -376,9 +392,24 @@ function submitOrder(){
     }
 
     // Order saved. Trigger email function (non-blocking).
-    supabaseClient.functions
-      .invoke("send-order-email-index-ts", { body: { order_id: orderId } })
-      .catch((err) => console.error("send-order-email error:", err));
+// Send confirmation email (non-blocking, with logging)
+  (async () => {
+    try {
+      const resp = await supabaseClient.functions.invoke(
+        "send-order-email-index-ts",
+        { body: { order_id: orderId } }
+      );
+
+      if (resp?.error) {
+        console.error("Email function returned error:", resp.error);
+      } else {
+        console.log("Email function success:", resp.data);
+      }
+    } catch (e) {
+      console.error("Email function invocation failed:", e);
+    }
+  })();
+
 
     // Restore UI and show success/venmo UI
     $("submitOrderBtn").disabled = false;
@@ -422,7 +453,7 @@ function submitOrder(){
       </div>
     `;
 
-    setMsg(html, false);
+    setMsg(html, false, true);
   })();
 }
 
