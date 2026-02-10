@@ -68,6 +68,7 @@
 
 
   </style>
+  <link rel="icon" href="./favicon.ico" type="image/x-icon">
 
     <!-- replace with the UMD build -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.29.0/dist/umd/supabase.min.js"></script>
@@ -181,6 +182,13 @@ function buildVenmoLink(handle, amount, note) {
     `&note=${encodeURIComponent(note)}`
   );
 }
+
+  function clearCart() {
+  cart = [];
+  renderCart();
+  setMsg("");
+  }
+
 
 function renderProducts() {
   const grid = $("productGrid");
