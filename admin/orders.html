@@ -188,12 +188,15 @@
     for (const [order_id, items] of map.entries()){
       const first = items[0];
       const totalNum = items.reduce((sum, x) => sum + Number(x.unit_price || 0), 0);
-      const status = {
-        paid: !!first.paid,
-        ordered: !!first.ordered,
-        received: !!first.received,
-        delivered: !!first.delivered,
-      };
+        const toBool = (v) => v === true || v === "true" || v === 1 || v === "1";
+
+        const status = {
+        paid: toBool(first.paid),
+        ordered: toBool(first.ordered),
+        received: toBool(first.received),
+        delivered: toBool(first.delivered),
+        };
+
       groups.push({
         order_id,
         parent_name: first.parent_name || "",
@@ -202,7 +205,8 @@
         status,
         items,
         created_at: first.created_at || null,
-        vendor_batch: first.vendor_batch || null,
+        vendor_batch: items.some(x => x.vendor_batch) ? (items.find(x=>x.vendor_batch)?.vendor_batch || null) : null,
+
       });
     }
     // newest first if created_at exists, else lexical order_id desc
@@ -410,7 +414,9 @@
         g.status.paid === true &&
         g.status.ordered === false &&
         !g.vendor_batch // exclude already batched (remove this line if you don't care)
+        
     );
+    console.log("Groups:", state.groups);
 
     els.genBatchBtn.disabled = eligibleGroups.length === 0;
     }
