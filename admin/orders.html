@@ -55,8 +55,9 @@
     <div class="hd no-print">
       <div class="row">
         <input id="q" type="text" placeholder="Search order id or name…" />
+        <input id="batchQ" type="text" placeholder="Filter by batch (VB-20260211-01)" style="width:220px;" />
         <button class="secondary" id="refreshBtn">Refresh</button>
-      </div>
+    </div>
       <div class="muted" id="countLabel"></div>
     </div>
     <div class="bd no-print">
@@ -120,6 +121,7 @@
 
   const els = {
     q: document.getElementById("q"),
+    batchQ: document.getElementById("batchQ"),
     refreshBtn: document.getElementById("refreshBtn"),
     tbody: document.getElementById("ordersTbody"),
     countLabel: document.getElementById("countLabel"),
@@ -157,6 +159,7 @@
       notReceived: false,
       showDeliveredOnly: false,
       q: "",
+      batchNumber: "",
     },
   };
 
@@ -227,6 +230,11 @@
 
   function passesFilters(g){
     const f = state.filters;
+      // if a batch filter is set, only show groups in that batch (case-insensitive, partial match)
+    if (f.batchNumber) {
+        if (!g.vendor_batch) return false;
+        if (!String(g.vendor_batch).toLowerCase().includes(f.batchNumber.toLowerCase())) return false;
+    }
 
     // Delivered visibility
     if (f.showDeliveredOnly) {
@@ -526,6 +534,10 @@
     state.filters.q = els.q.value || "";
     renderList();
   });
+    els.batchQ.addEventListener("input", ()=>{
+    state.filters.batchNumber = (els.batchQ.value || "").trim();
+    renderList();
+  });
 
   els.refreshBtn.addEventListener("click", loadOrders);
 
@@ -535,12 +547,25 @@
   // genBatchBtn listener
    els.genBatchBtn.addEventListener("click", async ()=>{
   // 1) If there are PAID rows that already have vendor_batch, print them (no new batch)
-  const existingBatches = new Set();
-  for (const r of state.ordersRaw){
-    if (isTrue(r.paid) && hasText(r.vendor_batch)){
-      existingBatches.add(String(r.vendor_batch).trim());
+    let existingBatches = new Set();
+
+    if (state.filters.batchNumber) {
+    const target = state.filters.batchNumber.trim().toLowerCase();
+    for (const r of state.ordersRaw){
+        if (r.vendor_batch &&
+            String(r.vendor_batch).toLowerCase().includes(target) &&
+            isTrue(r.paid)) {
+
+        existingBatches.add(String(r.vendor_batch).trim());
+        }
     }
-  }
+    } else {
+    for (const r of state.ordersRaw){
+        if (isTrue(r.paid) && hasText(r.vendor_batch)){
+        existingBatches.add(String(r.vendor_batch).trim());
+        }
+    }
+    }
 
   if (existingBatches.size > 0){
     // Print each existing batch
