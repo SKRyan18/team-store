@@ -67,7 +67,7 @@
         <div class="chip" id="chipNotReceived">Not received</div>
         <div class="chip" id="chipShowDelivered">Show delivered only</div>
         <div class="row" style="margin: 10px 0;">
-            <button id="genBatchBtn">Generate Vendor Batch + Print</button>
+            <button id="genBatchBtn" disabled>Generate Vendor Batch + Print</button>
         </div>
 
       </div>
@@ -406,6 +406,13 @@
       await loadOrders();
     }
   }
+    function updateGenBatchButton(){
+        const eligible = state.ordersRaw.some(r =>
+            r.paid === true && r.ordered === false
+        );
+
+        els.genBatchBtn.disabled = !eligible;
+    }
 
   async function loadOrders(){
     els.tbody.innerHTML = `<tr><td colspan="4" class="muted">Loading…</td></tr>`;
@@ -424,11 +431,14 @@
     state.ordersRaw = data || [];
     state.groups = groupOrders(state.ordersRaw);
     renderList();
+    updateGenBatchButton();
 
     // keep selection if possible
     if (state.selectedOrderId){
       selectOrder(state.selectedOrderId);
     }
+
+
   }
 
   // chips
