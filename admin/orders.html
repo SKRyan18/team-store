@@ -409,17 +409,29 @@
     }
     }
 
-    function updateGenBatchButton(){
-    const eligibleGroups = state.groups.filter(g =>
-        g.status.paid === true &&
-        g.status.ordered === false &&
-        !g.vendor_batch // exclude already batched (remove this line if you don't care)
-        
-    );
-    console.log("Groups:", state.groups);
+function toBool(v){
+  return v === true || v === "true" || v === 1 || v === "1";
+}
 
-    els.genBatchBtn.disabled = eligibleGroups.length === 0;
+    function updateGenBatchButton(){
+    const eligibleOrderIds = new Set();
+
+    for (const r of state.ordersRaw){
+        const paid = toBool(r.paid);
+        const ordered = toBool(r.ordered);
+        const batched = !!r.vendor_batch;
+
+        if (paid && !ordered && !batched){
+        eligibleOrderIds.add(r.order_id);
+        }
     }
+
+    els.genBatchBtn.disabled = eligibleOrderIds.size === 0;
+
+    // optional debug
+    // console.log("eligibleOrderIds", [...eligibleOrderIds]);
+    }
+
 
   async function loadOrders(){
     els.tbody.innerHTML = `<tr><td colspan="4" class="muted">Loading…</td></tr>`;
@@ -502,11 +514,18 @@
   });
   // genBatchBtn listener
     els.genBatchBtn.addEventListener("click", async ()=>{
-    const eligible = state.groups.filter(g =>
-        g.status.paid === true &&
-        g.status.ordered === false &&
-        !g.vendor_batch
-    );
+    const eligibleOrderIds = new Set();
+    for (const r of state.ordersRaw){
+    const paid = toBool(r.paid);
+    const ordered = toBool(r.ordered);
+    const batched = !!r.vendor_batch;
+
+    if (paid && !ordered && !batched){
+        eligibleOrderIds.add(r.order_id);
+    }
+    }
+    const order_ids = [...eligibleOrderIds];
+
 
     if (!eligible.length) {
         alert("No eligible paid-but-not-ordered orders to batch.");
@@ -516,7 +535,7 @@
 
     els.genBatchBtn.disabled = true;
 
-    const order_ids = eligible.map(g => g.order_id);
+
 
     const resp = await fetch(`${SUPABASE_URL}/functions/v1/create-vendor-batch`, {
         method: "POST",
