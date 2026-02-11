@@ -353,59 +353,54 @@
 
     // wire toggles
     ["paid","ordered","received","delivered"].forEach(key=>{
-      const cb = document.getElementById(`cb-${key}`);
-      cb?.addEventListener("change", async (e)=>{
+    const cb = document.getElementById(`cb-${key}`);
+    cb?.addEventListener("change", async (e)=>{
         const checked = e.target.checked;
 
+        // 1) Cascade locally so multiple boxes appear checked immediately
         const desired = applyCascade(g.status, key, checked);
-
-        // Optimistically update UI
         g.status = desired;
-        await pushStatusUpdate(orderId, desired);
 
-        // re-render list + detail to reflect cascade
+        // 2) ✅ Only send the one field the user actually toggled
+        await pushStatusUpdate(orderId, { [key]: checked });
+
+        // 3) Re-render
         renderList();
         selectOrder(orderId);
-      });
     });
+    });
+
   }
 
-  function statusToggle(key, value){
-    return `
-      <label>
-        <input type="checkbox" id="cb-${key}" ${value ? "checked" : ""} />
-        <span style="text-transform:capitalize;">${key}</span>
-      </label>
-    `;
-  }
+    function statusToggle(key, value){
+        return `
+        <label>
+            <input type="checkbox" id="cb-${key}" ${value ? "checked" : ""} />
+            <span style="text-transform:capitalize;">${key}</span>
+        </label>
+        `;
+    }
 
-  async function pushStatusUpdate(orderId, desired){
-    // We send only the most “advanced” true flag if setting true (so cascade happens in the function too),
-    // but for simplicity, just send the exact booleans and let the function logic interpret.
-    // Here: send whichever checkbox changed by sending all four (fine).
+    async function pushStatusUpdate(orderId, patch){
     const resp = await fetch(`${SUPABASE_URL}/functions/v1/update-order-status`, {
-      method: "POST",
-      headers: {
+        method: "POST",
+        headers: {
         "Content-Type": "application/json",
-        "apikey": SUPABASE_ANON_KEY,
         "x-admin-secret": ADMIN_SECRET,
-      },
-      body: JSON.stringify({
+        },
+        body: JSON.stringify({
         order_id: orderId,
-        paid: desired.paid,
-        ordered: desired.ordered,
-        received: desired.received,
-        delivered: desired.delivered,
-      }),
+        ...patch, // e.g. { delivered: true }
+        }),
     });
 
     if (!resp.ok){
-      const t = await resp.text().catch(()=> "");
-      alert("Status update failed: " + t);
-      // If it fails, safest is to refresh from DB:
-      await loadOrders();
+        const t = await resp.text().catch(()=> "");
+        alert("Status update failed: " + t);
+        await loadOrders();
     }
-  }
+    }
+
     function updateGenBatchButton(){
         const eligible = state.ordersRaw.some(r =>
             r.paid === true && r.ordered === false
