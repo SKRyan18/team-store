@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Team Store Admin — Orders</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background:#f6f7fb; color:#111; }
+    header { padding: 16px 18px; background:#111; color:#fff; display:flex; align-items:center; gap:12px; }
+    header h1 { font-size: 16px; margin:0; font-weight:700; }
+    header .muted { opacity:.8; font-size: 12px; }
+    main { display:grid; grid-template-columns: 1.1fr .9fr; gap: 14px; padding: 14px; }
+    @media (max-width: 980px){ main{ grid-template-columns: 1fr; } }
+    .card { background:#fff; border-radius: 12px; box-shadow: 0 1px 10px rgba(0,0,0,.06); overflow:hidden; }
+    .card .hd { padding: 12px 14px; border-bottom: 1px solid #eee; display:flex; align-items:center; justify-content:space-between; gap:10px;}
+    .card .bd { padding: 12px 14px; }
+    .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    input[type="text"]{ padding: 9px 10px; border:1px solid #ddd; border-radius: 10px; width: 260px; max-width: 100%; }
+    button { border:0; background:#111; color:#fff; padding: 9px 12px; border-radius:10px; font-weight:700; cursor:pointer; }
+    button.secondary { background:#e9eaef; color:#111; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    .chips { display:flex; gap:8px; flex-wrap:wrap; }
+    .chip { border:1px solid #ddd; background:#fff; padding:7px 10px; border-radius:999px; font-size:12px; cursor:pointer; user-select:none; }
+    .chip.on { background:#111; color:#fff; border-color:#111; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid #f0f0f0; font-size: 13px; vertical-align: top; }
+    th { text-align:left; font-size: 12px; color:#444; }
+    tr.clickable { cursor:pointer; }
+    tr.clickable:hover { background:#fafafa; }
+    .badge { display:inline-block; padding:3px 8px; border-radius:999px; font-size:11px; background:#eef0ff; color:#2a2f77; }
+    .status { display:flex; gap:10px; flex-wrap:wrap; }
+    .status label { display:flex; gap:6px; align-items:center; font-size: 13px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .muted { color:#666; font-size: 12px; }
+    .items li { margin: 6px 0; }
+    .divider { height:1px; background:#eee; margin: 10px 0; }
+    .print-area { display:none; }
+    @media print {
+      header, .no-print { display:none !important; }
+      main { display:block; padding:0; }
+      .card { box-shadow:none; border-radius:0; }
+      .print-area { display:block; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Admin — Orders</h1>
+  <div class="muted">Default: delivered hidden • Click an order for details</div>
+</header>
+
+<main>
+  <!-- LEFT: Orders List -->
+  <section class="card">
+    <div class="hd no-print">
+      <div class="row">
+        <input id="q" type="text" placeholder="Search order id or name…" />
+        <button class="secondary" id="refreshBtn">Refresh</button>
+      </div>
+      <div class="muted" id="countLabel"></div>
+    </div>
+    <div class="bd no-print">
+      <div class="chips" style="margin-bottom:10px;">
+        <div class="chip on" id="chipHideDelivered">Hide delivered</div>
+        <div class="chip" id="chipUnpaid">Unpaid</div>
+        <div class="chip" id="chipNotOrdered">Not ordered</div>
+        <div class="chip" id="chipNotReceived">Not received</div>
+        <div class="chip" id="chipShowDelivered">Show delivered only</div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Order</th>
+            <th>Name</th>
+            <th>Total</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="ordersTbody">
+          <tr><td colspan="4" class="muted">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- RIGHT: Detail -->
+  <aside class="card" id="detailCard">
+    <div class="hd">
+      <div>
+        <div style="font-weight:800;" id="detailTitle">Select an order</div>
+        <div class="muted" id="detailSub"></div>
+      </div>
+      <div class="row no-print">
+        <button class="secondary" id="printBtn" disabled>Print checklist</button>
+      </div>
+    </div>
+    <div class="bd" id="detailBody">
+      <div class="muted">Click an order on the left to see item details and update statuses.</div>
+    </div>
+
+    <!-- Print-only block -->
+    <div class="bd print-area" id="printArea"></div>
+  </aside>
+</main>
+
+<script type="module">
+  import { createClient } from "https://esm.sh/@supabase/supabase-js@2.29.0";
+
+  // ✅ Fill these in
+  const SUPABASE_URL = "https://oaxwmguhucxaucpyofil.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_jD2x3piN7xnCIjca94gYFA_zzkbjS7T";
+  const ADMIN_SECRET = "r6s.krkN3ee2_7m"; // x-admin-secret
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const els = {
+    q: document.getElementById("q"),
+    refreshBtn: document.getElementById("refreshBtn"),
+    tbody: document.getElementById("ordersTbody"),
+    countLabel: document.getElementById("countLabel"),
+    // chips
+    chipHideDelivered: document.getElementById("chipHideDelivered"),
+    chipUnpaid: document.getElementById("chipUnpaid"),
+    chipNotOrdered: document.getElementById("chipNotOrdered"),
+    chipNotReceived: document.getElementById("chipNotReceived"),
+    chipShowDelivered: document.getElementById("chipShowDelivered"),
+    // detail
+    detailTitle: document.getElementById("detailTitle"),
+    detailSub: document.getElementById("detailSub"),
+    detailBody: document.getElementById("detailBody"),
+    printBtn: document.getElementById("printBtn"),
+    printArea: document.getElementById("printArea"),
+  };
+
+  const state = {
+    ordersRaw: [],
+    groups: [],
+    selectedOrderId: null,
+    filters: {
+      hideDelivered: true,
+      unpaid: false,
+      notOrdered: false,
+      notReceived: false,
+      showDeliveredOnly: false,
+      q: "",
+    },
+  };
+
+  function money(n){ return (Math.round(n*100)/100).toFixed(2); }
+
+  function toggleChip(el, on){
+    el.classList.toggle("on", !!on);
+  }
+
+  function applyCascade(current, key, value){
+    // current: {paid, ordered, received, delivered}
+    // key: toggled checkbox
+    const s = { ...current };
+
+    if (value === true){
+      if (key === "paid") s.paid = true;
+      if (key === "ordered"){ s.ordered = true; s.paid = true; }
+      if (key === "received"){ s.received = true; s.ordered = true; s.paid = true; }
+      if (key === "delivered"){ s.delivered = true; s.received = true; s.ordered = true; s.paid = true; }
+    } else {
+      if (key === "paid"){ s.paid = false; s.ordered = false; s.received = false; s.delivered = false; }
+      if (key === "ordered"){ s.ordered = false; s.received = false; s.delivered = false; }
+      if (key === "received"){ s.received = false; s.delivered = false; }
+      if (key === "delivered"){ s.delivered = false; }
+    }
+    return s;
+  }
+
+  function groupOrders(rows){
+    const map = new Map();
+    for (const r of rows){
+      const id = r.order_id;
+      if (!map.has(id)) map.set(id, []);
+      map.get(id).push(r);
+    }
+    const groups = [];
+    for (const [order_id, items] of map.entries()){
+      const first = items[0];
+      const totalNum = items.reduce((sum, x) => sum + Number(x.unit_price || 0), 0);
+      const status = {
+        paid: !!first.paid,
+        ordered: !!first.ordered,
+        received: !!first.received,
+        delivered: !!first.delivered,
+      };
+      groups.push({
+        order_id,
+        parent_name: first.parent_name || "",
+        email: first.email || "",
+        total: money(totalNum),
+        status,
+        items,
+        created_at: first.created_at || null,
+        vendor_batch: first.vendor_batch || null,
+      });
+    }
+    // newest first if created_at exists, else lexical order_id desc
+    groups.sort((a,b)=>{
+      if (a.created_at && b.created_at) return b.created_at.localeCompare(a.created_at);
+      return b.order_id.localeCompare(a.order_id);
+    });
+    return groups;
+  }
+
+  function passesFilters(g){
+    const f = state.filters;
+
+    if (f.showDeliveredOnly){
+      if (!g.status.delivered) return false;
+    } else if (f.hideDelivered){
+      if (g.status.delivered) return false;
+    }
+
+    if (f.unpaid && g.status.paid) return false;
+    if (f.notOrdered && g.status.ordered) return false;
+    if (f.notReceived && g.status.received) return false;
+
+    const q = (f.q || "").trim().toLowerCase();
+    if (q){
+      const hay = `${g.order_id} ${g.parent_name}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+
+    return true;
+  }
+
+  function statusBadges(s){
+    const parts = [];
+    if (s.paid) parts.push(`<span class="badge">paid</span>`);
+    if (s.ordered) parts.push(`<span class="badge">ordered</span>`);
+    if (s.received) parts.push(`<span class="badge">received</span>`);
+    if (s.delivered) parts.push(`<span class="badge">delivered</span>`);
+    if (!parts.length) parts.push(`<span class="badge">new</span>`);
+    return parts.join(" ");
+  }
+
+  function renderList(){
+    const filtered = state.groups.filter(passesFilters);
+    els.countLabel.textContent = `${filtered.length} order(s) shown`;
+
+    if (!filtered.length){
+      els.tbody.innerHTML = `<tr><td colspan="4" class="muted">No orders match filters.</td></tr>`;
+      return;
+    }
+
+    els.tbody.innerHTML = filtered.map(g => `
+      <tr class="clickable" data-order-id="${g.order_id}">
+        <td class="mono">${g.order_id}</td>
+        <td>${escapeHtml(g.parent_name || "")}</td>
+        <td>$${g.total}</td>
+        <td>${statusBadges(g.status)}</td>
+      </tr>
+    `).join("");
+
+    els.tbody.querySelectorAll("tr[data-order-id]").forEach(tr=>{
+      tr.addEventListener("click", ()=> selectOrder(tr.getAttribute("data-order-id")));
+    });
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, (c)=>({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[c]));
+  }
+
+  async function selectOrder(orderId){
+    state.selectedOrderId = orderId;
+    const g = state.groups.find(x=>x.order_id === orderId);
+    if (!g) return;
+
+    els.detailTitle.textContent = `Order ${g.order_id}`;
+    els.detailSub.textContent = `${g.parent_name} • Total $${g.total}` + (g.vendor_batch ? ` • Batch ${g.vendor_batch}` : "");
+    els.printBtn.disabled = false;
+
+    const itemLines = g.items.map(r=>{
+      const nm = r.custom_text ? `Name: ${r.custom_text}` : "";
+      const num = r.jersey_number ? `#${r.jersey_number}` : "";
+      const extra = [nm, num].filter(Boolean).join(" • ");
+      return `<li>
+        <b>${escapeHtml(r.item)}</b> — ${escapeHtml(r.size || "")}
+        ${extra ? `<span class="muted">(${escapeHtml(extra)})</span>` : ""}
+        <span class="muted"> — $${money(Number(r.unit_price || 0))}</span>
+      </li>`;
+    }).join("");
+
+    const s = g.status;
+
+    els.detailBody.innerHTML = `
+      <div class="status no-print">
+        ${statusToggle("paid", s.paid)}
+        ${statusToggle("ordered", s.ordered)}
+        ${statusToggle("received", s.received)}
+        ${statusToggle("delivered", s.delivered)}
+      </div>
+
+      <div class="divider no-print"></div>
+
+      <div class="row no-print">
+        <span class="muted">Tip: Delivered auto-sets Received/Ordered/Paid.</span>
+      </div>
+
+      <div class="divider"></div>
+
+      <div><b>Items</b></div>
+      <ul class="items">${itemLines}</ul>
+    `;
+
+    // print template
+    els.printArea.innerHTML = `
+      <div style="padding:12px 0;">
+        <div style="font-size:18px;font-weight:800;">Order Checklist</div>
+        <div style="margin:6px 0 10px 0;" class="mono">${escapeHtml(g.order_id)}</div>
+        <div style="margin-bottom:10px;">${escapeHtml(g.parent_name)} — Total $${g.total}</div>
+        <hr />
+        <ul style="list-style:none; padding-left:0;">
+          ${g.items.map(r=>{
+            const nm = r.custom_text ? `Name: ${r.custom_text}` : "";
+            const num = r.jersey_number ? `#${r.jersey_number}` : "";
+            const extra = [nm, num].filter(Boolean).join(" • ");
+            return `<li style="margin:10px 0;">
+              <span style="display:inline-block; width:18px; height:18px; border:1px solid #000; margin-right:10px; vertical-align:middle;"></span>
+              <span><b>${escapeHtml(r.item)}</b> — ${escapeHtml(r.size || "")} ${extra ? `(${escapeHtml(extra)})` : ""}</span>
+            </li>`;
+          }).join("")}
+        </ul>
+      </div>
+    `;
+
+    // wire toggles
+    ["paid","ordered","received","delivered"].forEach(key=>{
+      const cb = document.getElementById(`cb-${key}`);
+      cb?.addEventListener("change", async (e)=>{
+        const checked = e.target.checked;
+
+        const desired = applyCascade(g.status, key, checked);
+
+        // Optimistically update UI
+        g.status = desired;
+        await pushStatusUpdate(orderId, desired);
+
+        // re-render list + detail to reflect cascade
+        renderList();
+        selectOrder(orderId);
+      });
+    });
+  }
+
+  function statusToggle(key, value){
+    return `
+      <label>
+        <input type="checkbox" id="cb-${key}" ${value ? "checked" : ""} />
+        <span style="text-transform:capitalize;">${key}</span>
+      </label>
+    `;
+  }
+
+  async function pushStatusUpdate(orderId, desired){
+    // We send only the most “advanced” true flag if setting true (so cascade happens in the function too),
+    // but for simplicity, just send the exact booleans and let the function logic interpret.
+    // Here: send whichever checkbox changed by sending all four (fine).
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/update-order-status`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_ANON_KEY,
+        "x-admin-secret": ADMIN_SECRET,
+      },
+      body: JSON.stringify({
+        order_id: orderId,
+        paid: desired.paid,
+        ordered: desired.ordered,
+        received: desired.received,
+        delivered: desired.delivered,
+      }),
+    });
+
+    if (!resp.ok){
+      const t = await resp.text().catch(()=> "");
+      alert("Status update failed: " + t);
+      // If it fails, safest is to refresh from DB:
+      await loadOrders();
+    }
+  }
+
+  async function loadOrders(){
+    els.tbody.innerHTML = `<tr><td colspan="4" class="muted">Loading…</td></tr>`;
+
+    // Pull minimal columns needed for list + detail
+    const { data, error } = await supabase
+      .from("orders")
+      .select("order_id,parent_name,email,item,size,custom_text,jersey_number,unit_price,paid,ordered,received,delivered,created_at,vendor_batch")
+      .order("created_at", { ascending: false });
+
+    if (error){
+      els.tbody.innerHTML = `<tr><td colspan="4" class="muted">Error loading orders: ${escapeHtml(error.message)}</td></tr>`;
+      return;
+    }
+
+    state.ordersRaw = data || [];
+    state.groups = groupOrders(state.ordersRaw);
+    renderList();
+
+    // keep selection if possible
+    if (state.selectedOrderId){
+      selectOrder(state.selectedOrderId);
+    }
+  }
+
+  // chips
+  els.chipHideDelivered.addEventListener("click", ()=>{
+    state.filters.hideDelivered = !state.filters.hideDelivered;
+    if (state.filters.hideDelivered) state.filters.showDeliveredOnly = false;
+    toggleChip(els.chipHideDelivered, state.filters.hideDelivered);
+    toggleChip(els.chipShowDelivered, state.filters.showDeliveredOnly);
+    renderList();
+  });
+
+  els.chipShowDelivered.addEventListener("click", ()=>{
+    state.filters.showDeliveredOnly = !state.filters.showDeliveredOnly;
+    if (state.filters.showDeliveredOnly) state.filters.hideDelivered = false;
+    toggleChip(els.chipShowDelivered, state.filters.showDeliveredOnly);
+    toggleChip(els.chipHideDelivered, state.filters.hideDelivered);
+    renderList();
+  });
+
+  function simpleToggleChip(el, key){
+    el.addEventListener("click", ()=>{
+      state.filters[key] = !state.filters[key];
+      toggleChip(el, state.filters[key]);
+      renderList();
+    });
+  }
+  simpleToggleChip(els.chipUnpaid, "unpaid");
+  simpleToggleChip(els.chipNotOrdered, "notOrdered");
+  simpleToggleChip(els.chipNotReceived, "notReceived");
+
+  els.q.addEventListener("input", ()=>{
+    state.filters.q = els.q.value || "";
+    renderList();
+  });
+
+  els.refreshBtn.addEventListener("click", loadOrders);
+
+  els.printBtn.addEventListener("click", ()=>{
+    window.print();
+  });
+
+  // init chip visuals
+  toggleChip(els.chipHideDelivered, true);
+
+  // go
+  loadOrders();
+</script>
+</body>
+</html>
