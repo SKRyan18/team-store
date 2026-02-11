@@ -264,8 +264,9 @@
     els.countLabel.textContent = `${filtered.length} order(s) shown`;
 
     if (!filtered.length){
-      els.tbody.innerHTML = `<tr><td colspan="4" class="muted">No orders match filters.</td></tr>`;
-      return;
+        els.tbody.innerHTML = `<tr><td colspan="4" class="muted">No orders match filters.</td></tr>`;
+        updateGenBatchButton(); // <-- ADD THIS
+        return;
     }
 
     els.tbody.innerHTML = filtered.map(g => `
@@ -431,7 +432,7 @@
     state.ordersRaw = data || [];
     state.groups = groupOrders(state.ordersRaw);
     renderList();
-    //updateGenBatchButton(); removed since this function is in renderList now
+    updateGenBatchButton();
 
     // keep selection if possible
     if (state.selectedOrderId){
