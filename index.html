@@ -461,8 +461,16 @@ async function submitOrder() {
         </button>
       </div>
 
-      <div class="muted" style="margin-top:10px;">
-        Manual Venmo note (if needed): <strong>${escapeHtml(venmoNote)}</strong>
+      <div class="muted" style="margin-top:10px; font-size:12px;">
+        <div>
+          Manual Venmo note (if needed):
+          <strong>${escapeHtml(venmoNote)}</strong>
+        </div>
+
+        <div style="margin-top:6px;">
+          If you don’t see your confirmation email in your inbox,
+          please check your spam or promotions folder and mark it as “Not Spam.”
+        </div>
       </div>
     </div>
   `;
@@ -470,6 +478,7 @@ async function submitOrder() {
   // Hide old actions to prevent double-submit
   $("submitOrderBtn").style.display = "none";
   $("clearCartBtn").style.display = "none";
+  $("productGrid").style.display = "none";
 
   setMsg(html, false, true);
 
@@ -484,6 +493,7 @@ async function submitOrder() {
       $("buyerEmail").value = "";
 
       setMsg("");
+      $("productGrid").style.display = "grid";
 
       $("submitOrderBtn").style.display = "";
       $("clearCartBtn").style.display = "";
