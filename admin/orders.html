@@ -280,6 +280,9 @@
     els.tbody.querySelectorAll("tr[data-order-id]").forEach(tr=>{
       tr.addEventListener("click", ()=> selectOrder(tr.getAttribute("data-order-id")));
     });
+    // end of renderList()
+    updateGenBatchButton();
+
   }
 
   function escapeHtml(s){
@@ -428,7 +431,7 @@
     state.ordersRaw = data || [];
     state.groups = groupOrders(state.ordersRaw);
     renderList();
-    updateGenBatchButton();
+    //updateGenBatchButton(); removed since this function is in renderList now
 
     // keep selection if possible
     if (state.selectedOrderId){
