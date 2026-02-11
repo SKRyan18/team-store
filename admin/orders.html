@@ -66,6 +66,10 @@
         <div class="chip" id="chipNotOrdered">Not ordered</div>
         <div class="chip" id="chipNotReceived">Not received</div>
         <div class="chip" id="chipShowDelivered">Show delivered only</div>
+        <div class="row" style="margin: 10px 0;">
+            <button id="genBatchBtn">Generate Vendor Batch + Print</button>
+        </div>
+
       </div>
 
       <table>
@@ -131,6 +135,7 @@
     detailBody: document.getElementById("detailBody"),
     printBtn: document.getElementById("printBtn"),
     printArea: document.getElementById("printArea"),
+    genBatchBtn: document.getElementById("genBatchBtn"),
   };
 
   const state = {
@@ -211,24 +216,38 @@
   function passesFilters(g){
     const f = state.filters;
 
-    if (f.showDeliveredOnly){
-      if (!g.status.delivered) return false;
-    } else if (f.hideDelivered){
-      if (g.status.delivered) return false;
+    // Delivered visibility
+    if (f.showDeliveredOnly) {
+        if (!g.status.delivered) return false;
+    } else if (f.hideDelivered) {
+        if (g.status.delivered) return false;
     }
 
-    if (f.unpaid && g.status.paid) return false;
-    if (f.notOrdered && g.status.ordered) return false;
-    if (f.notReceived && g.status.received) return false;
+    // Cascading workflow filters (mutually compatible, but better as "stage" filters)
+    if (f.unpaid) {
+        if (g.status.paid) return false;                 // unpaid only
+    }
+
+    if (f.notOrdered) {
+        if (!g.status.paid) return false;                // must be paid
+        if (g.status.ordered) return false;              // not ordered
+    }
+
+    if (f.notReceived) {
+        if (!g.status.paid) return false;                // must be paid
+        if (!g.status.ordered) return false;             // must be ordered
+        if (g.status.received) return false;             // not received
+    }
 
     const q = (f.q || "").trim().toLowerCase();
     if (q){
-      const hay = `${g.order_id} ${g.parent_name}`.toLowerCase();
-      if (!hay.includes(q)) return false;
+        const hay = `${g.order_id} ${g.parent_name}`.toLowerCase();
+        if (!hay.includes(q)) return false;
     }
 
     return true;
-  }
+    }
+
 
   function statusBadges(s){
     const parts = [];
@@ -429,16 +448,30 @@
     renderList();
   });
 
-  function simpleToggleChip(el, key){
-    el.addEventListener("click", ()=>{
-      state.filters[key] = !state.filters[key];
-      toggleChip(el, state.filters[key]);
-      renderList();
-    });
-  }
-  simpleToggleChip(els.chipUnpaid, "unpaid");
-  simpleToggleChip(els.chipNotOrdered, "notOrdered");
-  simpleToggleChip(els.chipNotReceived, "notReceived");
+    function setStage(stage){
+        state.filters.unpaid = stage === "unpaid";
+        state.filters.notOrdered = stage === "notOrdered";
+        state.filters.notReceived = stage === "notReceived";
+
+        toggleChip(els.chipUnpaid, state.filters.unpaid);
+        toggleChip(els.chipNotOrdered, state.filters.notOrdered);
+        toggleChip(els.chipNotReceived, state.filters.notReceived);
+
+        renderList();
+        }
+
+        els.chipUnpaid.addEventListener("click", ()=>{
+        setStage(state.filters.unpaid ? null : "unpaid");
+        });
+
+        els.chipNotOrdered.addEventListener("click", ()=>{
+        setStage(state.filters.notOrdered ? null : "notOrdered");
+        });
+
+        els.chipNotReceived.addEventListener("click", ()=>{
+        setStage(state.filters.notReceived ? null : "notReceived");
+        });
+
 
   els.q.addEventListener("input", ()=>{
     state.filters.q = els.q.value || "";
