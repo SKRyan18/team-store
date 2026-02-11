@@ -138,6 +138,14 @@
     genBatchBtn: document.getElementById("genBatchBtn"),
   };
 
+    function isTrue(v){
+        return v === true || v === "true" || v === 1 || v === "1";
+        }
+
+        function hasText(v){
+        return v != null && String(v).trim() !== "";
+        }
+
   const state = {
     ordersRaw: [],
     groups: [],
@@ -408,29 +416,41 @@
         await loadOrders();
     }
     }
+        async function printBatch(vendor_batch){
+        const { data, error } = await supabase
+            .from("orders")
+            .select("order_id,item,size,custom_text,jersey_number,unit_price,created_at,vendor_batch")
+            .eq("vendor_batch", vendor_batch)
+            .order("created_at", { ascending: true });
 
-function toBool(v){
-  return v === true || v === "true" || v === 1 || v === "1";
-}
+        if (error){
+            alert("Failed loading batch for print: " + error.message);
+            return;
+        }
+
+        // reuse your existing print rendering by faking the function result shape
+        return { batch_id: vendor_batch, items: data || [] };
+        }
+    function toBool(v){
+    return v === true || v === "true" || v === 1 || v === "1";
+    }
 
     function updateGenBatchButton(){
-    const eligibleOrderIds = new Set();
+    let hasExistingPrintable = false;
+    let hasNewEligible = false;
 
     for (const r of state.ordersRaw){
-        const paid = toBool(r.paid);
-        const ordered = toBool(r.ordered);
-        const batched = !!r.vendor_batch;
+        const paid = isTrue(r.paid);
+        const ordered = isTrue(r.ordered);
+        const batched = hasText(r.vendor_batch);
 
-        if (paid && !ordered && !batched){
-        eligibleOrderIds.add(r.order_id);
-        }
+        if (paid && batched) hasExistingPrintable = true;
+        if (paid && !ordered && !batched) hasNewEligible = true;
     }
 
-    els.genBatchBtn.disabled = eligibleOrderIds.size === 0;
-
-    // optional debug
-    // console.log("eligibleOrderIds", [...eligibleOrderIds]);
+    els.genBatchBtn.disabled = !(hasExistingPrintable || hasNewEligible);
     }
+
 
 
   async function loadOrders(){
@@ -513,100 +533,171 @@ function toBool(v){
     window.print();
   });
   // genBatchBtn listener
-    els.genBatchBtn.addEventListener("click", async ()=>{
-    const eligibleOrderIds = new Set();
-    for (const r of state.ordersRaw){
-    const paid = toBool(r.paid);
-    const ordered = toBool(r.ordered);
-    const batched = !!r.vendor_batch;
-
-    if (paid && !ordered && !batched){
-        eligibleOrderIds.add(r.order_id);
+   els.genBatchBtn.addEventListener("click", async ()=>{
+  // 1) If there are PAID rows that already have vendor_batch, print them (no new batch)
+  const existingBatches = new Set();
+  for (const r of state.ordersRaw){
+    if (isTrue(r.paid) && hasText(r.vendor_batch)){
+      existingBatches.add(String(r.vendor_batch).trim());
     }
-    }
-    const order_ids = [...eligibleOrderIds];
+  }
 
+  if (existingBatches.size > 0){
+    // Print each existing batch
+    for (const vb of existingBatches){
+      const result = await printBatch(vb);
+      if (!result) continue;
 
-    if (!eligible.length) {
-        alert("No eligible paid-but-not-ordered orders to batch.");
-        updateGenBatchButton();
-        return;
-    }
+      // ---- your existing print rendering block STARTS here ----
+      const w = window.open("", "_blank");
+      const items = result.items || [];
 
-    els.genBatchBtn.disabled = true;
-
-
-
-    const resp = await fetch(`${SUPABASE_URL}/functions/v1/create-vendor-batch`, {
-        method: "POST",
-        headers: {
-        "Content-Type": "application/json",
-        "x-admin-secret": ADMIN_SECRET,
-        },
-        body: JSON.stringify({ order_ids }),
-    });
-
-    if (!resp.ok){
-        const t = await resp.text().catch(()=> "");
-        alert("Batch create failed: " + t);
-        await loadOrders();
-        return;
-    }
-
-    const result = await resp.json(); // { ok:true, batch_id, items:[...] }
-
-    // Print immediately from returned items
-    const w = window.open("", "_blank");
-    const items = result.items || [];
-
-    // group items by order_id for print formatting
-    const byOrder = new Map();
-    for (const r of items){
+      const byOrder = new Map();
+      for (const r of items){
         if (!byOrder.has(r.order_id)) byOrder.set(r.order_id, []);
         byOrder.get(r.order_id).push(r);
+      }
+
+      const escape = (s)=> String(s ?? "").replace(/[&<>"']/g, (c)=>({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+      }[c]));
+
+      const order_ids = Array.from(byOrder.keys());
+
+      const orderSections = Array.from(byOrder.entries()).map(function(entry){
+        const oid = entry[0];
+        const rows = entry[1];
+        const lis = rows.map(function(r){
+          var extraParts = [];
+          if (r.custom_text) extraParts.push("Name: " + r.custom_text);
+          if (r.jersey_number) extraParts.push("#" + r.jersey_number);
+          var extra = extraParts.join(" - ");
+
+          var li = "<li><b>" + escape(r.item) + "</b> - " + escape(r.size || "");
+          if (extra) li += " <span class=\"muted\">(" + escape(extra) + ")</span>";
+          li += "</li>";
+          return li;
+        }).join("");
+
+        return "<div class=\"order\"><h2>Order " + escape(oid) + "</h2><ul>" + lis + "</ul></div>";
+      }).join("");
+
+      const batchId = escape(result.batch_id || "");
+      var html =
+        "<!doctype html><html><head><meta charset=\"utf-8\" />" +
+        "<title>Vendor Batch " + batchId + "</title>" +
+        "<style>" +
+          "body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:18px}" +
+          "h1{margin:0 0 10px 0;font-size:20px}" +
+          ".muted{color:#666;font-size:12px;margin-bottom:14px}" +
+          ".order{margin:18px 0;page-break-inside:avoid}" +
+          ".order h2{margin:0 0 8px 0;font-size:16px}" +
+          "ul{margin:0;padding-left:18px}" +
+          "li{margin:6px 0}" +
+          "@media print{button{display:none}}" +
+        "</style></head><body>" +
+        "<h1>Vendor Batch " + batchId + "</h1>" +
+        "<div class=\"muted\">Orders: " + order_ids.map(escape).join(", ") + "</div>" +
+        "<button onclick=\"window.print()\">Print</button>" +
+        orderSections +
+        "</body></html>";
+
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      w.print();
+      // ---- your existing print rendering block ENDS here ----
     }
 
-    const escape = (s)=> String(s ?? "").replace(/[&<>"']/g, (c)=>({
-        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
-    }[c]));
+    await loadOrders();
+    return;
+  }
 
+  // 2) Otherwise: create a new batch from PAID + NOT ORDERED + UNBATCHED
+  const eligibleOrderIds = new Set();
+  for (const r of state.ordersRaw){
+    const paid = isTrue(r.paid);
+    const ordered = isTrue(r.ordered);
+    const batched = hasText(r.vendor_batch);
+    if (paid && !ordered && !batched){
+      eligibleOrderIds.add(r.order_id);
+    }
+  }
 
-    const batchId = escape(result.batch_id || result.vendor_batch || "");
+  const order_ids = [...eligibleOrderIds];
 
-    // build safe HTML without backticks or risky unicode
-    const orderSections = Array.from(byOrder.entries()).map(function(entry){
+  if (!order_ids.length){
+    alert("No eligible paid-but-not-ordered orders to batch.");
+    updateGenBatchButton();
+    return;
+  }
+
+  els.genBatchBtn.disabled = true;
+
+  const resp = await fetch(`${SUPABASE_URL}/functions/v1/create-vendor-batch`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-admin-secret": ADMIN_SECRET,
+    },
+    body: JSON.stringify({ order_ids }),
+  });
+
+  if (!resp.ok){
+    const t = await resp.text().catch(()=> "");
+    alert("Batch create failed: " + t);
+    await loadOrders();
+    return;
+  }
+
+  const result = await resp.json(); // { ok:true, batch_id, items:[...] }
+
+  // Print the NEW batch (reuse same rendering)
+  const w = window.open("", "_blank");
+  const items = result.items || [];
+
+  const byOrder = new Map();
+  for (const r of items){
+    if (!byOrder.has(r.order_id)) byOrder.set(r.order_id, []);
+    byOrder.get(r.order_id).push(r);
+  }
+
+  const escape = (s)=> String(s ?? "").replace(/[&<>"']/g, (c)=>({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[c]));
+
+  const orderSections = Array.from(byOrder.entries()).map(function(entry){
     const oid = entry[0];
     const rows = entry[1];
     const lis = rows.map(function(r){
-        var extraParts = [];
-        if (r.custom_text) extraParts.push("Name: " + r.custom_text);
-        if (r.jersey_number) extraParts.push("#" + r.jersey_number);
-        var extra = extraParts.join(" - ");
+      var extraParts = [];
+      if (r.custom_text) extraParts.push("Name: " + r.custom_text);
+      if (r.jersey_number) extraParts.push("#" + r.jersey_number);
+      var extra = extraParts.join(" - ");
 
-        var li = "<li><b>" + escape(r.item) + "</b> - " + escape(r.size || "");
-        if (extra) {
-        li += " <span class=\"muted\">(" + escape(extra) + ")</span>";
-        }
-        li += "</li>";
-        return li;
+      var li = "<li><b>" + escape(r.item) + "</b> - " + escape(r.size || "");
+      if (extra) li += " <span class=\"muted\">(" + escape(extra) + ")</span>";
+      li += "</li>";
+      return li;
     }).join("");
 
     return "<div class=\"order\"><h2>Order " + escape(oid) + "</h2><ul>" + lis + "</ul></div>";
-    }).join("");
+  }).join("");
 
-    // Build the HTML as one concatenated string (all ASCII except content)
-    var html =
+  const batchId = escape(result.batch_id || "");
+  var html =
     "<!doctype html><html><head><meta charset=\"utf-8\" />" +
     "<title>Vendor Batch " + batchId + "</title>" +
     "<style>" +
-        "body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:18px}" +
-        "h1{margin:0 0 10px 0;font-size:20px}" +
-        ".muted{color:#666;font-size:12px;margin-bottom:14px}" +
-        ".order{margin:18px 0;page-break-inside:avoid}" +
-        ".order h2{margin:0 0 8px 0;font-size:16px}" +
-        "ul{margin:0;padding-left:18px}" +
-        "li{margin:6px 0}" +
-        "@media print{button{display:none}}" +
+      "body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:18px}" +
+      "h1{margin:0 0 10px 0;font-size:20px}" +
+      ".muted{color:#666;font-size:12px;margin-bottom:14px}" +
+      ".order{margin:18px 0;page-break-inside:avoid}" +
+      ".order h2{margin:0 0 8px 0;font-size:16px}" +
+      "ul{margin:0;padding-left:18px}" +
+      "li{margin:6px 0}" +
+      "@media print{button{display:none}}" +
     "</style></head><body>" +
     "<h1>Vendor Batch " + batchId + "</h1>" +
     "<div class=\"muted\">Orders: " + order_ids.map(escape).join(", ") + "</div>" +
@@ -614,15 +705,15 @@ function toBool(v){
     orderSections +
     "</body></html>";
 
-    // write/print safely
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-    w.print();
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  w.print();
 
-    await loadOrders();
-    });
+  await loadOrders();
+});
+
 
   // init chip visuals
   toggleChip(els.chipHideDelivered, true);
