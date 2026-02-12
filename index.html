@@ -184,15 +184,32 @@ async function loadProducts(){
   $("statusPill").textContent = `Catalog loaded (${products.length})`;
 }
 function buildVenmoLink(handle, amount, note) {
-  // Handle can be "@samuel-Ryan-35" or "samuel-Ryan-35"
-  const recipients = String(handle || "").replace(/^@/, "");
-  return (
-    "https://venmo.com/?txn=pay" +
-    `&recipients=${encodeURIComponent(recipients)}` +
-    `&amount=${encodeURIComponent(Number(amount).toFixed(2))}` +
-    `&note=${encodeURIComponent(note)}`
-  );
+  const recipient = String(handle || "")
+    .replace(/^@/, "")
+    .trim()
+    .split(/[,\s]+/)[0]; // prevent accidental multi-recipient
+
+  const amt = Number(amount || 0).toFixed(2);
+
+  // Prefer deeplink for mobile app (reduces "multiple recipients" UI)
+  const deep = "venmo://paycharge" +
+    `?txn=pay` +
+    `&recipients=${encodeURIComponent(recipient)}` +
+    `&amount=${encodeURIComponent(amt)}` +
+    `&note=${encodeURIComponent(note)}`;
+
+  // Fallback for desktop / no app installed
+  const web = "https://venmo.com/" +
+    `?txn=pay` +
+    `&recipients=${encodeURIComponent(recipient)}` +
+    `&amount=${encodeURIComponent(amt)}` +
+    `&note=${encodeURIComponent(note)}`;
+
+  // Use deeplink on mobile-ish user agents
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  return isMobile ? deep : web;
 }
+
 
   function clearCart() {
   cart = [];
