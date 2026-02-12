@@ -477,32 +477,6 @@
     return v === true || v === "true" || v === 1 || v === "1";
     }
 
-    function updateBatchButtons(){
-    const visible = getVisibleGroups();
-
-    const createEligible = visible.filter(g =>
-        g.status?.paid === true &&
-        g.status?.ordered === false &&
-        !hasText(g.vendor_batch)
-    );
-
-    const printableBatches = new Set(
-        visible
-        .filter(g => g.status?.paid === true && g.status?.ordered === true && hasText(g.vendor_batch))
-        .map(g => String(g.vendor_batch).trim())
-    );
-
-    els.createBatchBtn.disabled = createEligible.length === 0;
-    els.printBatchBtn.disabled = printableBatches.size === 0;
-
-    // optional hint text
-    const msgs = [];
-    if (createEligible.length) msgs.push(`${createEligible.length} order(s) eligible to batch`);
-    if (printableBatches.size) msgs.push(`${printableBatches.size} batch(es) printable`);
-    els.batchHint.textContent = msgs.join(" • ");
-    }
-
-
 
 
   async function loadOrders(){
