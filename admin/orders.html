@@ -458,10 +458,10 @@
         await loadOrders();
     }
     }
-        async function printBatch(vendor_batch){
+    async function printBatch(vendor_batch){
         const { data, error } = await supabase
             .from("orders")
-            .select("order_id,item,size,custom_text,jersey_number,unit_price,created_at,vendor_batch")
+            .select("order_id,parent_name,item,size,custom_text,jersey_number,unit_price,created_at,vendor_batch")
             .eq("vendor_batch", vendor_batch)
             .order("created_at", { ascending: true });
 
@@ -663,86 +663,116 @@
 els.printBatchBtn.addEventListener("click", async ()=>{
   const visible = getVisibleGroups();
 
-  const batches = new Set(
+  // batches present in the visible list that are paid+ordered+have a batch id
+  const batches = Array.from(new Set(
     visible
       .filter(g => g.status?.paid === true && g.status?.ordered === true && hasText(g.vendor_batch))
       .map(g => String(g.vendor_batch).trim())
-  );
+  ));
 
-  if (!batches.size){
+  if (!batches.length){
     alert("No visible paid+ordered batches to print.");
     updateBatchButtons();
     return;
   }
 
-  for (const vb of batches){
-    const result = await printBatch(vb);
-    if (!result) continue;
+  // open window synchronously to preserve user gesture
+  const w = window.open("", "_blank");
+  if (!w) {
+    alert("Popup blocked. Please allow popups for this site and try again.");
+    return;
+  }
 
-    // reuse the same print rendering block, but:
-    // - use result.items
-    // - show Orders list from result.items
-    // (If you want, I’ll give you a tiny helper to avoid duplication.)
-    const w = window.open("", "_blank");
-    const items = result.items || [];
+  // load all batch contents in parallel
+  const fetches = batches.map(vb => printBatch(vb).catch(err=>{
+    console.error("printBatch failed for", vb, err);
+    return null;
+  }));
+  const results = await Promise.all(fetches);
 
+  const escape = (s)=> String(s ?? "").replace(/[&<>"']/g, (c)=>({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[c]));
+
+  // build sections grouped by batch (single document, dividers between batches)
+  const sections = [];
+  for (let i=0;i<results.length;i++){
+    const r = results[i];
+    if (!r) continue;
+    const items = r.items || [];
+
+    // Group items by order_id for this batch
     const byOrder = new Map();
-    for (const r of items){
-      if (!byOrder.has(r.order_id)) byOrder.set(r.order_id, []);
-      byOrder.get(r.order_id).push(r);
+    for (const it of items){
+      if (!byOrder.has(it.order_id)) byOrder.set(it.order_id, []);
+      byOrder.get(it.order_id).push(it);
     }
 
-    const escape = (s)=> String(s ?? "").replace(/[&<>"']/g, (c)=>({
-      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
-    }[c]));
+        const orderHtml = Array.from(byOrder.entries()).map(([oid, rows])=>{
+        const first = rows[0]; // group shares same parent_name
+        const parentName = first.parent_name || "";
 
-    const order_ids = Array.from(byOrder.keys());
+        const lis = rows.map(rr=>{
+            const extra = [ rr.custom_text ? `Name: ${rr.custom_text}` : "", rr.jersey_number ? `#${rr.jersey_number}` : "" ].filter(Boolean).join(" • ");
+            return `<li><b>${escape(rr.item)}</b> — ${escape(rr.size||"")}${extra ? ` <span class="muted">(${escape(extra)})</span>` : ""}</li>`;
+        }).join("");
 
-    const orderSections = Array.from(byOrder.entries()).map(function(entry){
-      const oid = entry[0];
-      const rows = entry[1];
-      const lis = rows.map(function(r){
-        var extraParts = [];
-        if (r.custom_text) extraParts.push("Name: " + r.custom_text);
-        if (r.jersey_number) extraParts.push("#" + r.jersey_number);
-        var extra = extraParts.join(" - ");
+        return `
+            <div class="order">
+            <div style="margin-bottom:6px;">
+                <span style="font-size:13px;font-weight:600;">${escape(parentName)}</span>
+                <span style="color:#666;margin-left:8px;font-size:12px;">| Order ID - ${escape(oid)}</span>
+            </div>
+            <ul>${lis}</ul>
+            </div>
+        `;
+        }).join("");
 
-        var li = "<li><b>" + escape(r.item) + "</b> - " + escape(r.size || "");
-        if (extra) li += " <span class=\"muted\">(" + escape(extra) + ")</span>";
-        li += "</li>";
-        return li;
-      }).join("");
 
-      return "<div class=\"order\"><h2>Order " + escape(oid) + "</h2><ul>" + lis + "</ul></div>";
-    }).join("");
 
-    const batchId = escape(result.batch_id || "");
-    var html =
-      "<!doctype html><html><head><meta charset=\"utf-8\" />" +
-      "<title>Vendor Batch " + batchId + "</title>" +
-      "<style>" +
-        "body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:18px}" +
-        "h1{margin:0 0 10px 0;font-size:20px}" +
-        ".muted{color:#666;font-size:12px;margin-bottom:14px}" +
-        ".order{margin:18px 0;page-break-inside:avoid}" +
-        ".order h2{margin:0 0 8px 0;font-size:16px}" +
-        "ul{margin:0;padding-left:18px}" +
-        "li{margin:6px 0}" +
-        "@media print{button{display:none}}" +
-      "</style></head><body>" +
-      "<h1>Vendor Batch " + batchId + "</h1>" +
-      "<div class=\"muted\">Orders: " + order_ids.map(escape).join(", ") + "</div>" +
-      "<button onclick=\"window.print()\">Print</button>" +
-      orderSections +
-      "</body></html>";
-
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-    w.print();
+    sections.push(`
+      <section class="batch-section">
+        <h2 class="batch-title">Vendor Batch ${escape(r.batch_id || batches[i])}</h2>
+        <div class="muted">Orders: ${Array.from(byOrder.keys()).map(escape).join(", ")}</div>
+        ${orderHtml}
+      </section>
+    `);
   }
+
+  const html = `<!doctype html>
+  <html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Vendor Batches ${batches.map(escape).join(", ")}</title>
+    <style>
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:18px; color:#111}
+      .batch-title{margin:0 0 6px 0; font-size:18px;}
+      .muted{color:#666;font-size:12px;margin-bottom:10px;}
+      .batch-section{margin:18px 0 24px 0; padding-bottom:12px; border-bottom:1px solid #ddd;}
+      .order{margin:10px 0;}
+      .order h3{margin:0 0 6px 0; font-size:14px;}
+      ul{margin:6px 0 0 18px;}
+      li{margin:6px 0; font-size:13px;}
+      @media print{ button{display:none} }
+    </style>
+  </head>
+  <body>
+    <button onclick="window.print()">Print</button>
+    ${sections.join("\n")}
+  </body>
+  </html>`;
+
+  // write and print the single combined document
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  w.print();
+
+  await loadOrders();
 });
+
+
 
 
 
