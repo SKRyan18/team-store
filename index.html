@@ -192,11 +192,12 @@ async function loadProducts(){
     const amt = Number(amount || 0).toFixed(2);
 
     return (
-      "https://account.venmo.com/pay" +
+      "https://account.venmo.com/payment-link" +
+      `?txn=pay` +
+      `&recipients=%2C${encodeURIComponent(recipient)}` +
       `&amount=${encodeURIComponent(amt)}` +
       `&note=${encodeURIComponent(note)}` +
-      `&txn=pay` +
-      `&recipients=${encodeURIComponent(recipient)}` 
+      `&share=f`
     );
   }
 
