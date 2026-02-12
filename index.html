@@ -193,7 +193,6 @@ async function loadProducts(){
 
     return (
       "https://account.venmo.com/pay" +
-      `?audience=private` +
       `&amount=${encodeURIComponent(amt)}` +
       `&note=${encodeURIComponent(note)}` +
       `&recipients=%2C${encodeURIComponent(recipient)}` +
