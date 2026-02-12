@@ -183,23 +183,30 @@ async function loadProducts(){
   products = data || [];
   $("statusPill").textContent = `Catalog loaded (${products.length})`;
 }
-  function buildVenmoLink(handle, amount, note) {
-    const recipient = String(handle || "")
-      .replace(/^@/, "")
-      .trim()
-      .split(/[,\s]+/)[0];
+function buildVenmoLink(handle, amount, note) {
+  const recipient = String(handle || "")
+    .replace(/^@/, "")
+    .trim()
+    .split(/[,\s]+/)[0];
 
-    const amt = Number(amount || 0).toFixed(2);
+  const amt = Number(amount || 0).toFixed(2);
 
-    return (
-      "https://account.venmo.com/payment-link" +
-      `?txn=pay` +
-      `&recipients=%2C${encodeURIComponent(recipient)}` +
-      `&amount=${encodeURIComponent(amt)}` +
-      `&note=${encodeURIComponent(note)}` +
-      `&share=f`
-    );
-  }
+  const deep =
+    `venmo://paycharge?txn=pay` +
+    `&recipients=%2C${encodeURIComponent(recipient)}` +
+    `&amount=${encodeURIComponent(amt)}` +
+    `&note=${encodeURIComponent(note)}`;
+
+  const web =
+    `https://venmo.com/?txn=pay` +
+    `&recipients=${encodeURIComponent(recipient)}` +
+    `&amount=${encodeURIComponent(amt)}` +
+    `&note=${encodeURIComponent(note)}`;
+
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  return isMobile ? deep : web;
+}
+
 
 
 
