@@ -195,8 +195,8 @@ async function loadProducts(){
       "https://account.venmo.com/pay" +
       `&amount=${encodeURIComponent(amt)}` +
       `&note=${encodeURIComponent(note)}` +
-      `&recipients=%2C${encodeURIComponent(recipient)}` +
-      `&txn=pay`
+      `&txn=pay` +
+      `&recipients=${encodeURIComponent(recipient)}` 
     );
   }
 
