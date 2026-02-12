@@ -68,7 +68,9 @@
         <div class="chip" id="chipNotReceived">Not received</div>
         <div class="chip" id="chipShowDelivered">Show delivered only</div>
         <div class="row" style="margin: 10px 0;">
-            <button id="genBatchBtn" disabled>Generate Vendor Batch + Print</button>
+            <button id="createBatchBtn" disabled>Create Batch</button>
+            <button id="printBatchBtn" class="secondary" disabled>Print Batch</button>
+            <span id="batchHint" class="muted"></span>
         </div>
 
       </div>
@@ -137,7 +139,10 @@
     detailBody: document.getElementById("detailBody"),
     printBtn: document.getElementById("printBtn"),
     printArea: document.getElementById("printArea"),
-    genBatchBtn: document.getElementById("genBatchBtn"),
+    createBatchBtn: document.getElementById("createBatchBtn"),
+    printBatchBtn: document.getElementById("printBatchBtn"),
+    batchHint: document.getElementById("batchHint"),
+
   };
 
     function isTrue(v){
@@ -162,6 +167,9 @@
       batchNumber: "",
     },
   };
+  function getVisibleGroups(){
+  return state.groups.filter(passesFilters);
+    }
 
   function money(n){ return (Math.round(n*100)/100).toFixed(2); }
 
@@ -187,6 +195,32 @@
     }
     return s;
   }
+    function updateBatchButtons(){
+    const visible = getVisibleGroups();
+
+    const createEligible = visible.filter(g =>
+        g.status?.paid === true &&
+        g.status?.ordered === false &&
+        !hasText(g.vendor_batch)
+    );
+
+    const printableBatches = new Set(
+        visible
+        .filter(g => g.status?.paid === true && g.status?.ordered === true && hasText(g.vendor_batch))
+        .map(g => String(g.vendor_batch).trim())
+    );
+
+    els.createBatchBtn.disabled = createEligible.length === 0;
+    els.printBatchBtn.disabled = printableBatches.size === 0;
+
+    // optional hint text
+    const msgs = [];
+    if (createEligible.length) msgs.push(`${createEligible.length} order(s) eligible to batch`);
+    if (printableBatches.size) msgs.push(`${printableBatches.size} batch(es) printable`);
+    els.batchHint.textContent = msgs.join(" • ");
+    }
+
+
 
   function groupOrders(rows){
     const map = new Map();
@@ -285,7 +319,7 @@
 
     if (!filtered.length){
         els.tbody.innerHTML = `<tr><td colspan="4" class="muted">No orders match filters.</td></tr>`;
-        updateGenBatchButton(); // <-- ADD THIS
+        updateBatchButtons(); // <-- ADD THIS
         return;
     }
 
@@ -302,7 +336,7 @@
       tr.addEventListener("click", ()=> selectOrder(tr.getAttribute("data-order-id")));
     });
     // end of renderList()
-    updateGenBatchButton();
+    updateBatchButtons();
 
   }
 
@@ -443,21 +477,31 @@
     return v === true || v === "true" || v === 1 || v === "1";
     }
 
-    function updateGenBatchButton(){
-    let hasExistingPrintable = false;
-    let hasNewEligible = false;
+    function updateBatchButtons(){
+    const visible = getVisibleGroups();
 
-    for (const r of state.ordersRaw){
-        const paid = isTrue(r.paid);
-        const ordered = isTrue(r.ordered);
-        const batched = hasText(r.vendor_batch);
+    const createEligible = visible.filter(g =>
+        g.status?.paid === true &&
+        g.status?.ordered === false &&
+        !hasText(g.vendor_batch)
+    );
 
-        if (paid && batched) hasExistingPrintable = true;
-        if (paid && !ordered && !batched) hasNewEligible = true;
+    const printableBatches = new Set(
+        visible
+        .filter(g => g.status?.paid === true && g.status?.ordered === true && hasText(g.vendor_batch))
+        .map(g => String(g.vendor_batch).trim())
+    );
+
+    els.createBatchBtn.disabled = createEligible.length === 0;
+    els.printBatchBtn.disabled = printableBatches.size === 0;
+
+    // optional hint text
+    const msgs = [];
+    if (createEligible.length) msgs.push(`${createEligible.length} order(s) eligible to batch`);
+    if (printableBatches.size) msgs.push(`${printableBatches.size} batch(es) printable`);
+    els.batchHint.textContent = msgs.join(" • ");
     }
 
-    els.genBatchBtn.disabled = !(hasExistingPrintable || hasNewEligible);
-    }
 
 
 
@@ -478,7 +522,7 @@
     state.ordersRaw = data || [];
     state.groups = groupOrders(state.ordersRaw);
     renderList();
-    updateGenBatchButton();
+    updateBatchButtons();
 
     // keep selection if possible
     if (state.selectedOrderId){
@@ -545,120 +589,20 @@
     window.print();
   });
   // genBatchBtn listener
-   els.genBatchBtn.addEventListener("click", async ()=>{
-  // 1) If there are PAID rows that already have vendor_batch, print them (no new batch)
-    let existingBatches = new Set();
+  els.createBatchBtn.addEventListener("click", async ()=>{
+  const visible = getVisibleGroups();
 
-    if (state.filters.batchNumber) {
-    const target = state.filters.batchNumber.trim().toLowerCase();
-    for (const r of state.ordersRaw){
-        if (r.vendor_batch &&
-            String(r.vendor_batch).toLowerCase().includes(target) &&
-            isTrue(r.paid)) {
-
-        existingBatches.add(String(r.vendor_batch).trim());
-        }
-    }
-    } else {
-    for (const r of state.ordersRaw){
-        if (isTrue(r.paid) && hasText(r.vendor_batch)){
-        existingBatches.add(String(r.vendor_batch).trim());
-        }
-    }
-    }
-
-  if (existingBatches.size > 0){
-    // Print each existing batch
-    for (const vb of existingBatches){
-      const result = await printBatch(vb);
-      if (!result) continue;
-
-      // ---- your existing print rendering block STARTS here ----
-      const w = window.open("", "_blank");
-      const items = result.items || [];
-
-      const byOrder = new Map();
-      for (const r of items){
-        if (!byOrder.has(r.order_id)) byOrder.set(r.order_id, []);
-        byOrder.get(r.order_id).push(r);
-      }
-
-      const escape = (s)=> String(s ?? "").replace(/[&<>"']/g, (c)=>({
-        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
-      }[c]));
-
-      const order_ids = Array.from(byOrder.keys());
-
-      const orderSections = Array.from(byOrder.entries()).map(function(entry){
-        const oid = entry[0];
-        const rows = entry[1];
-        const lis = rows.map(function(r){
-          var extraParts = [];
-          if (r.custom_text) extraParts.push("Name: " + r.custom_text);
-          if (r.jersey_number) extraParts.push("#" + r.jersey_number);
-          var extra = extraParts.join(" - ");
-
-          var li = "<li><b>" + escape(r.item) + "</b> - " + escape(r.size || "");
-          if (extra) li += " <span class=\"muted\">(" + escape(extra) + ")</span>";
-          li += "</li>";
-          return li;
-        }).join("");
-
-        return "<div class=\"order\"><h2>Order " + escape(oid) + "</h2><ul>" + lis + "</ul></div>";
-      }).join("");
-
-      const batchId = escape(result.batch_id || "");
-      var html =
-        "<!doctype html><html><head><meta charset=\"utf-8\" />" +
-        "<title>Vendor Batch " + batchId + "</title>" +
-        "<style>" +
-          "body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:18px}" +
-          "h1{margin:0 0 10px 0;font-size:20px}" +
-          ".muted{color:#666;font-size:12px;margin-bottom:14px}" +
-          ".order{margin:18px 0;page-break-inside:avoid}" +
-          ".order h2{margin:0 0 8px 0;font-size:16px}" +
-          "ul{margin:0;padding-left:18px}" +
-          "li{margin:6px 0}" +
-          "@media print{button{display:none}}" +
-        "</style></head><body>" +
-        "<h1>Vendor Batch " + batchId + "</h1>" +
-        "<div class=\"muted\">Orders: " + order_ids.map(escape).join(", ") + "</div>" +
-        "<button onclick=\"window.print()\">Print</button>" +
-        orderSections +
-        "</body></html>";
-
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
-      w.focus();
-      w.print();
-      // ---- your existing print rendering block ENDS here ----
-    }
-
-    await loadOrders();
-    return;
-  }
-
-  // 2) Otherwise: create a new batch from PAID + NOT ORDERED + UNBATCHED
-  const eligibleOrderIds = new Set();
-  for (const r of state.ordersRaw){
-    const paid = isTrue(r.paid);
-    const ordered = isTrue(r.ordered);
-    const batched = hasText(r.vendor_batch);
-    if (paid && !ordered && !batched){
-      eligibleOrderIds.add(r.order_id);
-    }
-  }
-
-  const order_ids = [...eligibleOrderIds];
+  const order_ids = visible
+    .filter(g => g.status?.paid === true && g.status?.ordered === false && !hasText(g.vendor_batch))
+    .map(g => g.order_id);
 
   if (!order_ids.length){
-    alert("No eligible paid-but-not-ordered orders to batch.");
-    updateGenBatchButton();
+    alert("No visible paid/not-ordered/unbatched orders to batch.");
+    updateBatchButtons();
     return;
   }
 
-  els.genBatchBtn.disabled = true;
+  els.createBatchBtn.disabled = true;
 
   const resp = await fetch(`${SUPABASE_URL}/functions/v1/create-vendor-batch`, {
     method: "POST",
@@ -678,7 +622,9 @@
 
   const result = await resp.json(); // { ok:true, batch_id, items:[...] }
 
-  // Print the NEW batch (reuse same rendering)
+  // Reuse your existing "print rendering" code by using result.items / result.batch_id
+  // (Keep your current render block here; it already works.)
+  // ---- START: your existing print rendering block ----
   const w = window.open("", "_blank");
   const items = result.items || [];
 
@@ -735,9 +681,95 @@
   w.document.close();
   w.focus();
   w.print();
+  // ---- END: your existing print rendering block ----
 
   await loadOrders();
 });
+
+els.printBatchBtn.addEventListener("click", async ()=>{
+  const visible = getVisibleGroups();
+
+  const batches = new Set(
+    visible
+      .filter(g => g.status?.paid === true && g.status?.ordered === true && hasText(g.vendor_batch))
+      .map(g => String(g.vendor_batch).trim())
+  );
+
+  if (!batches.size){
+    alert("No visible paid+ordered batches to print.");
+    updateBatchButtons();
+    return;
+  }
+
+  for (const vb of batches){
+    const result = await printBatch(vb);
+    if (!result) continue;
+
+    // reuse the same print rendering block, but:
+    // - use result.items
+    // - show Orders list from result.items
+    // (If you want, I’ll give you a tiny helper to avoid duplication.)
+    const w = window.open("", "_blank");
+    const items = result.items || [];
+
+    const byOrder = new Map();
+    for (const r of items){
+      if (!byOrder.has(r.order_id)) byOrder.set(r.order_id, []);
+      byOrder.get(r.order_id).push(r);
+    }
+
+    const escape = (s)=> String(s ?? "").replace(/[&<>"']/g, (c)=>({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[c]));
+
+    const order_ids = Array.from(byOrder.keys());
+
+    const orderSections = Array.from(byOrder.entries()).map(function(entry){
+      const oid = entry[0];
+      const rows = entry[1];
+      const lis = rows.map(function(r){
+        var extraParts = [];
+        if (r.custom_text) extraParts.push("Name: " + r.custom_text);
+        if (r.jersey_number) extraParts.push("#" + r.jersey_number);
+        var extra = extraParts.join(" - ");
+
+        var li = "<li><b>" + escape(r.item) + "</b> - " + escape(r.size || "");
+        if (extra) li += " <span class=\"muted\">(" + escape(extra) + ")</span>";
+        li += "</li>";
+        return li;
+      }).join("");
+
+      return "<div class=\"order\"><h2>Order " + escape(oid) + "</h2><ul>" + lis + "</ul></div>";
+    }).join("");
+
+    const batchId = escape(result.batch_id || "");
+    var html =
+      "<!doctype html><html><head><meta charset=\"utf-8\" />" +
+      "<title>Vendor Batch " + batchId + "</title>" +
+      "<style>" +
+        "body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:18px}" +
+        "h1{margin:0 0 10px 0;font-size:20px}" +
+        ".muted{color:#666;font-size:12px;margin-bottom:14px}" +
+        ".order{margin:18px 0;page-break-inside:avoid}" +
+        ".order h2{margin:0 0 8px 0;font-size:16px}" +
+        "ul{margin:0;padding-left:18px}" +
+        "li{margin:6px 0}" +
+        "@media print{button{display:none}}" +
+      "</style></head><body>" +
+      "<h1>Vendor Batch " + batchId + "</h1>" +
+      "<div class=\"muted\">Orders: " + order_ids.map(escape).join(", ") + "</div>" +
+      "<button onclick=\"window.print()\">Print</button>" +
+      orderSections +
+      "</body></html>";
+
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.print();
+  }
+});
+
 
 
   // init chip visuals
