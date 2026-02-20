@@ -1,0 +1,342 @@
+<!-- admin-products.html -->
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Admin — Products</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; padding:18px; max-width:1100px; }
+    table { border-collapse:collapse; width:100%; margin-top:12px; }
+    th,td { border:1px solid #ddd; padding:8px; }
+    th { background:#f7f7f7; text-align:left; }
+    input[type=text], input[type=number], select, textarea { width:100%; padding:6px; box-sizing:border-box; }
+    .row { display:flex; gap:12px; align-items:center; }
+    .btn { padding:8px 12px; cursor:pointer; border:1px solid #ccc; background:#fff; }
+    .btn-primary { background:#0b74de; color:#fff; border-color:#0b6ad1; }
+    .small { font-size:0.9rem; padding:6px 8px; }
+    .muted { color:#666; font-size:0.9rem; }
+    .hidden { display:none; }
+    .form-card { border:1px solid #eee; padding:12px; margin-top:12px; border-radius:6px; background:#fafafa; }
+  </style>
+</head>
+<body>
+  <h1>Admin — Products</h1>
+
+  <div id="authArea" class="form-card">
+    <div id="signedOut">
+      <h3>Sign in</h3>
+      <div style="max-width:420px;">
+        <label>Email</label>
+        <input id="email" type="text" />
+        <label>Password</label>
+        <input id="password" type="password" />
+        <div style="margin-top:8px;">
+          <button id="btnSignIn" class="btn btn-primary">Sign in</button>
+        </div>
+        <p class="muted">You must sign in with the admin user you added in Supabase.</p>
+      </div>
+    </div>
+
+    <div id="signedIn" class="hidden">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <strong id="whoami"></strong>
+        </div>
+        <div class="row">
+          <button id="btnSignOut" class="btn small">Sign out</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div style="display:flex; gap:8px; align-items:center; margin-top:12px;">
+      <button id="btnNew" class="btn btn-primary">+ New product</button>
+      <label style="margin-left:8px;">Filter:
+        <select id="categoryFilter"><option value="">All</option></select>
+      </label>
+        <!-- Replace existing showFilter select with this -->
+        <label style="margin-left:auto;">Show:
+            <select id="showFilter">
+                <option value="all">All</option>
+                <option value="active" selected>Active only</option>
+                <option value="inactive">Inactive only</option>
+            </select>
+        </label>
+    </div>
+
+    <table id="productsTable" aria-live="polite">
+      <thead>
+        <tr>
+          <th>SKU</th><th>Name</th><th>Price</th><th>Category</th><th>Active</th><th>Sort</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div id="editor" class="form-card hidden" style="max-width:720px;">
+      <h3 id="editorTitle">New Product</h3>
+      <input type="hidden" id="prod_id" />
+      <label>SKU</label><input id="prod_sku" type="text" />
+      <label>Name</label><input id="prod_name" type="text" />
+      <label>Price (e.g. 12.50)</label><input id="prod_price" type="number" step="0.01" />
+      <label>Category</label><input id="prod_category" type="text" />
+      <label>Sizes (comma-separated)</label><input id="prod_sizes" type="text" placeholder="S,M,L or leave blank" />
+      <label>Image URL</label><input id="prod_image_url" type="text" />
+      <label>Personalized?</label>
+      <select id="prod_personalized"><option value="false">No</option><option value="true">Yes</option></select>
+      <label>Number Required?</label>
+      <select id="prod_number_required"><option value="false">No</option><option value="true">Yes</option></select>
+      <label>Sort Order</label><input id="prod_sort" type="number" />
+      <label>Active</label>
+      <select id="prod_active"><option value="true">Yes</option><option value="false">No</option></select>
+
+      <div style="margin-top:8px; display:flex; gap:8px;">
+        <button id="btnSave" class="btn btn-primary">Save</button>
+        <button id="btnCancel" class="btn">Cancel</button>
+        <button id="btnDelete" class="btn" style="margin-left:auto; color:#a00;">Delete (soft)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Include Supabase JS v2 -->
+  <script type="module">
+    // === REPLACE THESE TWO with your project's values ===
+    const SUPABASE_URL = "https://REPLACE_WITH_YOUR_SUPABASE_URL";
+    const SUPABASE_ANON_KEY = "REPLACE_WITH_YOUR_ANON_KEY";
+    // ====================================================
+
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // helpers
+    const $ = id => document.getElementById(id);
+    const tbody = () => $("productsTable").querySelector("tbody");
+
+    let products = [];
+    let currentUser = null;
+    let selectedCategory = "";
+
+    // --- Auth handlers ---
+    async function initAuth() {
+      const { data: { user } } = await supabase.auth.getUser();
+      currentUser = user;
+      updateAuthUI();
+      supabase.auth.onAuthStateChange((_event, session) => {
+        currentUser = session?.user ?? null;
+        updateAuthUI();
+      });
+    }
+
+    function updateAuthUI() {
+      if (currentUser) {
+        $("signedOut").classList.add("hidden");
+        $("signedIn").classList.remove("hidden");
+        $("app").classList.remove("hidden");
+        $("whoami").textContent = currentUser.email || currentUser.id;
+        loadProducts();
+      } else {
+        $("signedOut").classList.remove("hidden");
+        $("signedIn").classList.add("hidden");
+        $("app").classList.add("hidden");
+      }
+    }
+
+    // sign in/out
+    $("btnSignIn").addEventListener("click", async () => {
+      const email = $("email").value.trim();
+      const password = $("password").value;
+      $("btnSignIn").disabled = true;
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      $("btnSignIn").disabled = false;
+      if (error) return alert("Sign-in error: " + error.message);
+      // onAuth callback will update UI
+    });
+
+    $("btnSignOut").addEventListener("click", async () => {
+      await supabase.auth.signOut();
+      location.reload();
+    });
+
+    // --- Product CRUD ---
+    async function loadProducts() {
+        const show = $("showFilter").value;
+        const cat = selectedCategory || "";
+        let q = supabase.from("products").select("id,sku,name,price,category,active,sort_order,personalized,number_required,sizes,image_url").order('sort_order', { ascending: true });
+
+        if (show === "active") {
+            q = q.eq("active", true);
+        } else if (show === "inactive") {
+            q = q.eq("active", false);
+        }
+      const { data, error } = await q;
+      if (error) return alert("Load error: " + error.message);
+      products = data || [];
+      renderCategoryFilter();
+      renderProducts();
+    }
+
+    function renderCategoryFilter() {
+      const sel = $("categoryFilter");
+      const cats = Array.from(new Set(products.map(p => (p.category || "").trim()).filter(Boolean))).sort();
+      sel.innerHTML = `<option value="">All</option>` + cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+      sel.value = selectedCategory || "";
+      sel.onchange = () => { selectedCategory = sel.value; renderProducts(); };
+      $("showFilter").onchange = loadProducts;
+    }
+
+    function renderProducts() {
+      const rows = [];
+      const filtered = products.filter(p => {
+        if (selectedCategory && String(p.category || "").toLowerCase() !== selectedCategory.toLowerCase()) return false;
+        return true;
+      });
+      const tb = tbody(); tb.innerHTML = "";
+      filtered.forEach(p => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${escapeHtml(p.sku)}</td>
+          <td style="max-width:280px;">${escapeHtml(p.name)}</td>
+          <td>$${Number(p.price).toFixed(2)}</td>
+          <td>${escapeHtml(p.category||"")}</td>
+          <td>${p.active ? "Yes" : "No"}</td>
+          <td>${p.sort_order}</td>
+          <td>
+            <button class="btn small" data-id="${p.id}" data-action="edit">Edit</button>
+            ${p.active
+                ? `<button class="btn small" data-id="${p.id}" data-action="deact">Deactivate</button>`
+                : `<button class="btn small" data-id="${p.id}" data-action="restore">Restore</button>`
+            }
+          </td>`;
+        tb.appendChild(tr);
+      });
+      // attach handlers
+      tb.querySelectorAll("button").forEach(btn => {
+        btn.addEventListener("click", e => {
+          const id = btn.getAttribute("data-id");
+          const action = btn.getAttribute("data-action");
+          const p = products.find(x => x.id === id);
+          // inside the tb.querySelectorAll("button").forEach(btn => { ... })
+            if (action === "edit") openEditor(p);
+            if (action === "deact") toggleActive(p);
+            if (action === "restore") restoreProduct(p);
+        });
+      });
+    }
+
+    function openEditor(p = null) {
+      $("editor").classList.remove("hidden");
+      if (!p) {
+        $("editorTitle").textContent = "New Product";
+        $("prod_id").value = "";
+        $("prod_sku").value = "";
+        $("prod_name").value = "";
+        $("prod_price").value = 0;
+        $("prod_category").value = "";
+        $("prod_sizes").value = "";
+        $("prod_image_url").value = "";
+        $("prod_personalized").value = "false";
+        $("prod_number_required").value = "false";
+        $("prod_sort").value = 0;
+        $("prod_active").value = "true";
+        $("btnDelete").classList.add("hidden");
+        return;
+      }
+      $("editorTitle").textContent = "Edit Product";
+      $("prod_id").value = p.id;
+      $("prod_sku").value = p.sku;
+      $("prod_name").value = p.name;
+      $("prod_price").value = p.price;
+      $("prod_category").value = p.category || "";
+      $("prod_sizes").value = (p.sizes || []).join(",");
+      $("prod_image_url").value = p.image_url || "";
+      $("prod_personalized").value = p.personalized ? "true" : "false";
+      $("prod_number_required").value = p.number_required ? "true" : "false";
+      $("prod_sort").value = p.sort_order || 0;
+      $("prod_active").value = p.active ? "true" : "false";
+      $("btnDelete").classList.remove("hidden");
+    }
+
+    $("btnNew").addEventListener("click", () => openEditor(null));
+    $("btnCancel").addEventListener("click", () => $("editor").classList.add("hidden"));
+
+    $("btnSave").addEventListener("click", async () => {
+      const id = $("prod_id").value || null;
+      const payload = {
+        sku: $("prod_sku").value.trim(),
+        name: $("prod_name").value.trim(),
+        price: Number($("prod_price").value) || 0,
+        category: $("prod_category").value.trim() || null,
+        sizes: $("prod_sizes").value.split(",").map(s => s.trim()).filter(Boolean),
+        image_url: $("prod_image_url").value.trim() || null,
+        personalized: $("prod_personalized").value === "true",
+        number_required: $("prod_number_required").value === "true",
+        sort_order: Number($("prod_sort").value) || 0,
+        active: $("prod_active").value === "true"
+      };
+
+      try {
+        if (!id) {
+          // insert
+          const { data, error } = await supabase.from("products").insert(payload).select();
+          if (error) throw error;
+        } else {
+          // update
+          const { data, error } = await supabase.from("products").update(payload).eq("id", id).select();
+          if (error) throw error;
+        }
+        $("editor").classList.add("hidden");
+        await loadProducts();
+      } catch (err) {
+        alert("Save error: " + (err.message || JSON.stringify(err)));
+      }
+    });
+
+    // soft delete / toggle active
+    async function toggleActive(p) {
+      const newVal = !p.active;
+      const { error } = await supabase.from("products").update({ active: newVal }).eq("id", p.id);
+      if (error) return alert("Toggle error: " + error.message);
+      await loadProducts();
+    }
+
+    // btnDelete performs a soft delete (sets active=false) but you can change to hard delete
+    $("btnDelete").addEventListener("click", async () => {
+      const id = $("prod_id").value;
+      if (!id) return;
+      if (!confirm("This will set active = false. Proceed?")) return;
+      const { error } = await supabase.from("products").update({ active: false }).eq("id", id);
+      if (error) return alert("Delete error: " + error.message);
+      $("editor").classList.add("hidden");
+      await loadProducts();
+    });
+    // restore an inactive product (set active = true)
+        async function restoreProduct(p) {
+            const { error } = await supabase.from("products").update({ active: true }).eq("id", p.id);
+            if (error) return alert("Restore error: " + error.message);
+            await loadProducts();
+        }
+
+    // escape helper
+    function escapeHtml(s) { return String(s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    // init wiring
+    document.addEventListener("DOMContentLoaded", async () => {
+      await initAuth();
+      $("btnNew").disabled = true;
+      $("btnSave").disabled = false;
+      // wire sign-in via Enter key on password
+      $("password").addEventListener("keydown", e => { if (e.key === "Enter") $("btnSignIn").click(); });
+
+      // wire new/edit buttons availability after auth
+      supabase.auth.onAuthStateChange(() => {
+        $("btnNew").disabled = !currentUser;
+      });
+
+      $("btnNew").addEventListener("click", () => openEditor(null));
+      // initial category filter change handled by renderCategoryFilter
+    });
+  </script>
+</body>
+</html>
