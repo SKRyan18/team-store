@@ -47,6 +47,9 @@
 <header>
   <h1>Admin — Orders</h1>
   <div class="muted">Default: delivered hidden • Click an order for details</div>
+  <div style="margin-bottom:12px;">
+    <a href="/admin/products.html">→ Manage Products</a>
+  </div>
 </header>
 
 <main>
@@ -117,10 +120,39 @@
   // ✅ Fill these in
   const SUPABASE_URL = "https://oaxwmguhucxaucpyofil.supabase.co";
   const SUPABASE_ANON_KEY = "sb_publishable_jD2x3piN7xnCIjca94gYFA_zzkbjS7T";
-  const ADMIN_SECRET = "r6s.krkN3ee2_7m"; // x-admin-secret
+
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+
+
+  async function requireAdmin() {
+    const { data: { user } } = await supabase.auth.getUser();
+
+    // Not logged in → send to products page (which has login UI)
+    if (!user) {
+      const next = encodeURIComponent("/admin/orders.html");
+      window.location.href = `/admin/products.html?next=${next}`;
+      return false;
+    }
+
+    // Logged in but not an admin → block
+    const { data, error } = await supabase
+      .from("admin_users")
+      .select("user_id")
+      .eq("user_id", user.id)
+      .single();
+
+    if (error || !data) {
+      alert("Not authorized.");
+      await supabase.auth.signOut();
+      const next = encodeURIComponent("/admin/orders.html");
+      window.location.href = `/admin/products.html?next=${next}`;
+      return false;
+    }
+
+    return true;
+  }
   const els = {
     q: document.getElementById("q"),
     batchQ: document.getElementById("batchQ"),
@@ -167,6 +199,10 @@
       batchNumber: "",
     },
   };
+
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+
   function getVisibleGroups(){
   return state.groups.filter(passesFilters);
     }
@@ -440,23 +476,33 @@
     }
 
     async function pushStatusUpdate(orderId, patch){
-    const resp = await fetch(`${SUPABASE_URL}/functions/v1/update-order-status`, {
+    // get currently-signed-in user's JWT (fresh each call)
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        alert("Not authenticated — please sign in.");
+        // reload to show sign-in UI if needed
+        await loadOrders();
+        return;
+      }
+
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/update-order-status`, {
         method: "POST",
         headers: {
-        "Content-Type": "application/json",
-        "x-admin-secret": ADMIN_SECRET,
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
         },
         body: JSON.stringify({
-        order_id: orderId,
-        ...patch, // e.g. { delivered: true }
+          order_id: orderId,
+          ...patch, // e.g. { delivered: true }
         }),
-    });
+      });
 
-    if (!resp.ok){
+      if (!resp.ok){
         const t = await resp.text().catch(()=> "");
         alert("Status update failed: " + t);
         await loadOrders();
-    }
+      }
     }
     async function printBatch(vendor_batch){
         const { data, error } = await supabase
@@ -578,11 +624,20 @@
 
   els.createBatchBtn.disabled = true;
 
+    // get user token before calling the function
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) {
+    alert("Not authenticated — please sign in.");
+    els.createBatchBtn.disabled = false;
+    return;
+  }
+
   const resp = await fetch(`${SUPABASE_URL}/functions/v1/create-vendor-batch`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-admin-secret": ADMIN_SECRET,
+      "Authorization": `Bearer ${token}`,
     },
     body: JSON.stringify({ order_ids }),
   });
@@ -775,12 +830,16 @@ els.printBatchBtn.addEventListener("click", async ()=>{
 
 
 
+(async () => {
+  const ok = await requireAdmin();
+  if (!ok) return;
 
   // init chip visuals
   toggleChip(els.chipHideDelivered, true);
 
   // go
   loadOrders();
+})();
 </script>
 </body>
 </html>

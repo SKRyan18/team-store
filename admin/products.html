@@ -22,7 +22,9 @@
 </head>
 <body>
   <h1>Admin — Products</h1>
-
+  <div style="margin-bottom:12px;">
+    <a href="/admin/orders.html">→ Manage Orders</a>
+  </div>
   <div id="authArea" class="form-card">
     <div id="signedOut">
       <h3>Sign in</h3>
@@ -152,6 +154,8 @@
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       $("btnSignIn").disabled = false;
       if (error) return alert("Sign-in error: " + error.message);
+      const next = new URLSearchParams(window.location.search).get("next");
+      if (next) window.location.href = next;
       // onAuth callback will update UI
     });
 
