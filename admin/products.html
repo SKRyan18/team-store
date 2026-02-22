@@ -114,6 +114,15 @@
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // helpers
+
+    function getRepoBasePath() {
+        const parts = window.location.pathname.split("/").filter(Boolean);
+        return parts.length ? `/${parts[0]}` : "";
+    }
+    const BASE = getRepoBasePath();                 // "/team-store"
+    const ADMIN_PRODUCTS_URL = `${BASE}/admin/products.html`;
+    const ADMIN_ORDERS_URL   = `${BASE}/admin/orders.html`;
+    
     const $ = id => document.getElementById(id);
     const tbody = () => $("productsTable").querySelector("tbody");
 
@@ -154,8 +163,17 @@
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       $("btnSignIn").disabled = false;
       if (error) return alert("Sign-in error: " + error.message);
-      const next = new URLSearchParams(window.location.search).get("next");
-      if (next) window.location.href = next;
+        const next = new URLSearchParams(window.location.search).get("next");
+
+        // allow only same-site relative paths, and preserve repo base if needed
+        if (next && !next.includes("://")) {
+        if (next.startsWith("/")) {
+            window.location.href = next; // e.g. "/team-store/admin/orders.html"
+        } else {
+            // e.g. "admin/orders.html" -> "/team-store/admin/orders.html"
+            window.location.href = `${BASE}/${next.replace(/^\/+/, "")}`;
+        }
+        }
       // onAuth callback will update UI
     });
 

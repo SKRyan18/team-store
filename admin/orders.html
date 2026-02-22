@@ -124,19 +124,26 @@
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+    function getRepoBasePath() {
+    // e.g. /team-store/admin/orders.html -> /team-store
+    const parts = window.location.pathname.split("/").filter(Boolean);
+    // user sites have 0 parts; project sites have 1st part = repo
+    return parts.length ? `/${parts[0]}` : "";
+    }
 
+    const BASE = getRepoBasePath(); // "/team-store" on your site
+    const ADMIN_PRODUCTS_URL = `${BASE}/admin/products.html`;
+    const ADMIN_ORDERS_URL   = `${BASE}/admin/orders.html`;
 
   async function requireAdmin() {
     const { data: { user } } = await supabase.auth.getUser();
 
     // Not logged in → send to products page (which has login UI)
     if (!user) {
-      const next = encodeURIComponent("team-store/admin/orders.html");
-      // Redirect *relative* to the admin folder on the same repo, preserving the repo path
-      window.location.href = `team-store/products.html?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+      const next = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.href = `${ADMIN_PRODUCTS_URL}?next=${next}`;
       return false;
     }
-
     // Logged in but not an admin → block
     const { data, error } = await supabase
       .from("admin_users")
@@ -147,9 +154,8 @@
     if (error || !data) {
       alert("Not authorized.");
       await supabase.auth.signOut();
-      const next = encodeURIComponent("/admin/orders.html");
-      // Redirect *relative* to the admin folder on the same repo, preserving the repo path
-      window.location.href = `products.html?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+      const next = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.href = `${ADMIN_PRODUCTS_URL}?next=${next}`;
       return false;
     }
 
