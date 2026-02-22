@@ -131,8 +131,9 @@
 
     // Not logged in → send to products page (which has login UI)
     if (!user) {
-      const next = encodeURIComponent("/admin/orders.html");
-      window.location.href = `/admin/products.html?next=${next}`;
+      const next = encodeURIComponent("team-store/admin/orders.html");
+      // Redirect *relative* to the admin folder on the same repo, preserving the repo path
+      window.location.href = `team-store/products.html?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
       return false;
     }
 
@@ -147,7 +148,8 @@
       alert("Not authorized.");
       await supabase.auth.signOut();
       const next = encodeURIComponent("/admin/orders.html");
-      window.location.href = `/admin/products.html?next=${next}`;
+      // Redirect *relative* to the admin folder on the same repo, preserving the repo path
+      window.location.href = `products.html?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
       return false;
     }
 
